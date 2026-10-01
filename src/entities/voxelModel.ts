@@ -35,9 +35,27 @@ export function limb(size: [number, number, number], color: number, pivot: [numb
   return g;
 }
 
+const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+/** Swap every mesh under `root` to a flat flash material (hit feedback), or restore. */
+export function setFlash(root: THREE.Object3D, on: boolean, material: THREE.Material = flashMaterial): void {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    if (on) {
+      mesh.userData.baseMaterial ??= mesh.material;
+      mesh.material = material;
+    } else if (mesh.userData.baseMaterial) {
+      mesh.material = mesh.userData.baseMaterial as THREE.Material;
+    }
+  });
+}
+
 export interface HumanoidParts {
   root: THREE.Group;
+  /** Pivots around the character's centre (for rolls and death tilts). */
   body: THREE.Group;
+  bodyBaseY: number;
   head: THREE.Mesh;
   armL: THREE.Group;
   armR: THREE.Group;
@@ -57,8 +75,13 @@ export interface HumanoidColors {
 export function buildHumanoid(colors: HumanoidColors, scale = 1): HumanoidParts {
   const root = new THREE.Group();
   const body = new THREE.Group();
+  const inner = new THREE.Group();
   root.add(body);
+  body.add(inner);
   body.scale.setScalar(scale);
+  const bodyBaseY = 0.75 * scale;
+  body.position.y = bodyBaseY;
+  inner.position.y = -0.75;
 
   const legL = limb([0.22, 0.55, 0.24], colors.pants, [-0.13, 0.6, 0]);
   const legR = limb([0.22, 0.55, 0.24], colors.pants, [0.13, 0.6, 0]);
@@ -81,6 +104,6 @@ export function buildHumanoid(colors: HumanoidColors, scale = 1): HumanoidParts 
     eye.position.divide(head.scale);
     head.add(eye);
   }
-  body.add(legL, legR, torso, armL, armR, head);
-  return { root, body, head, armL, armR, legL, legR };
+  inner.add(legL, legR, torso, armL, armR, head);
+  return { root, body, bodyBaseY, head, armL, armR, legL, legR };
 }

@@ -37,3 +37,123 @@ body {
 .hidden {
   display: none !important;
 }
+
+.hud-bottom {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hp-bar {
+  position: relative;
+  width: 280px;
+  height: 22px;
+  background: #2a1214;
+  border: 2px solid #120708;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.5);
+}
+
+.hp-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(#e2574c, #a8261f);
+  transition: width 0.15s ease-out;
+}
+
+.hp-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px #000;
+}
+
+.ability {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  background: #1d1f26;
+  border: 2px solid #3a3d48;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.ability.ready {
+  border-color: #c9a54a;
+}
+
+.ability-glyph {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.ability-key {
+  position: absolute;
+  bottom: 1px;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.ability-shade {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  background: rgb(0 0 0 / 0.6);
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.screen.death {
+  background: radial-gradient(rgb(60 0 0 / 0.35), rgb(10 0 0 / 0.85));
+}
+
+.screen h1 {
+  margin: 0;
+  font-size: 44px;
+  letter-spacing: 0.04em;
+  color: #e9d6c0;
+  text-shadow: 0 3px 10px #000;
+}
+
+.btn {
+  font: inherit;
+  font-size: 18px;
+  padding: 10px 26px;
+  color: #1b130b;
+  background: #d9b45a;
+  border: 2px solid #6b4f16;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: #ecc86b;
+}
+
+.hint {
+  margin: 0;
+  opacity: 0.6;
+  font-size: 13px;
+}
