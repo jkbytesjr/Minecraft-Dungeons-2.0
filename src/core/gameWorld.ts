@@ -93,7 +93,7 @@ export class GameWorld {
       this.levelGroup.add(chest.group);
     }
     for (const s of level.spawns) {
-      const e = this.spawn(createEnemy(s.kind, level.depth), s.x, s.z);
+      const e = this.spawn(createEnemy(s.kind, level.depth, level.boss), s.x, s.z);
       if (e instanceof Boss) this.boss = e;
     }
   }
@@ -153,7 +153,7 @@ export class GameWorld {
     enemy.setPosition(x, z);
     enemy.facing = this.rng.range(-Math.PI, Math.PI);
     this.enemies.push(enemy);
-    this.root.add(enemy.object, enemy.healthBar.group);
+    this.root.add(enemy.object, enemy.healthBar.group, enemy.worldFx);
     return enemy;
   }
 
@@ -196,7 +196,7 @@ export class GameWorld {
   }
 
   private removeEnemyObjects(e: Enemy): void {
-    this.root.remove(e.object, e.healthBar.group);
+    this.root.remove(e.object, e.healthBar.group, e.worldFx);
   }
 
   private targetsFor(owner: ProjectileOwner): readonly ProjectileTarget[] {

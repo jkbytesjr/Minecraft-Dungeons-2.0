@@ -11,6 +11,7 @@ export interface GameEvents {
   bossDefeated: { x: number; z: number };
   slam: { x: number; z: number; radius: number };
   dodge: { x: number; z: number };
+  teleport: { x: number; z: number };
   levelUp: { level: number };
   itemPicked: { item: Item };
   potionPicked: Record<string, never>;

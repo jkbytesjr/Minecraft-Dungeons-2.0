@@ -1,6 +1,6 @@
 /** Equipment + bag + derived stats. Pure logic, unit-tested. */
 import { STARTER_WEAPON, type ArmorItem, type Item, type StatKey, type WeaponItem } from './loot';
-import { levelBonuses } from './progression';
+import { perkBonuses, type PerkCounts } from './perks';
 
 export const BAG_SIZE = 16;
 export const MAX_POTIONS = 9;
@@ -17,9 +17,13 @@ export interface DerivedStats {
   attackSpeed: number;
   lifeOnHit: number;
   weaponDamage: number;
+  /** Fraction of max HP a potion restores. */
+  potionHeal: number;
+  /** Ability and dodge cooldowns are divided by this. */
+  cooldownRate: number;
 }
 
-const BASE = { maxHp: 100, critChance: 0.08, critMultiplier: 1.75, moveSpeed: 5 };
+const BASE = { maxHp: 100, critChance: 0.08, critMultiplier: 1.75, moveSpeed: 5, potionHeal: 0.4 };
 
 export class Inventory {
   weapon: WeaponItem = STARTER_WEAPON;
@@ -77,18 +81,21 @@ function sumMods(items: (Item | null)[], stat: StatKey): number {
   return total;
 }
 
-export function computeStats(level: number, inv: Pick<Inventory, 'weapon' | 'armor'>): DerivedStats {
+/** Final stats from gear plus level-up perks. Character level itself grants nothing; the perks do. */
+export function computeStats(perks: PerkCounts, inv: Pick<Inventory, 'weapon' | 'armor'>): DerivedStats {
   const gear = [inv.weapon, inv.armor];
-  const lvl = levelBonuses(level);
+  const pk = perkBonuses(perks);
   return {
-    maxHp: BASE.maxHp + lvl.maxHp + (inv.armor?.maxHp ?? 0) + sumMods(gear, 'maxHp'),
-    power: 1 + lvl.power + sumMods(gear, 'damagePct'),
-    critChance: Math.min(0.75, BASE.critChance + sumMods(gear, 'critChance')),
-    critMultiplier: BASE.critMultiplier,
-    armor: (inv.armor?.armor ?? 0) + sumMods(gear, 'armor'),
-    moveSpeed: BASE.moveSpeed * (1 + sumMods(gear, 'moveSpeedPct')),
-    attackSpeed: 1 + sumMods(gear, 'attackSpeedPct'),
-    lifeOnHit: sumMods(gear, 'lifeOnHit'),
+    maxHp: BASE.maxHp + pk.maxHp + (inv.armor?.maxHp ?? 0) + sumMods(gear, 'maxHp'),
+    power: 1 + pk.damagePct + sumMods(gear, 'damagePct'),
+    critChance: Math.min(0.75, BASE.critChance + pk.critChance + sumMods(gear, 'critChance')),
+    critMultiplier: BASE.critMultiplier + pk.critMultiplier,
+    armor: (inv.armor?.armor ?? 0) + pk.armor + sumMods(gear, 'armor'),
+    moveSpeed: BASE.moveSpeed * (1 + pk.moveSpeedPct + sumMods(gear, 'moveSpeedPct')),
+    attackSpeed: 1 + pk.attackSpeedPct + sumMods(gear, 'attackSpeedPct'),
+    lifeOnHit: pk.lifeOnHit + sumMods(gear, 'lifeOnHit'),
     weaponDamage: inv.weapon.damage,
+    potionHeal: BASE.potionHeal + pk.potionHeal,
+    cooldownRate: 1 + pk.cooldownRate,
   };
 }

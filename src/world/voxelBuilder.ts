@@ -12,11 +12,14 @@ interface Theme {
   accent: number;
 }
 
-/** One palette per dungeon floor: earthy stone, mossy ruins, ashen depths. */
+/** One palette per dungeon floor: earthy stone, mossy ruins, ashen depths, frozen crypt, violet catacombs, obsidian. */
 const THEMES: Theme[] = [
   { floor: [0x5b5249, 0x544b43, 0x625850, 0x4d453e], wall: [0x6e6a66, 0x65615d, 0x75716c, 0x5e5a56], accent: 0x4a6b3a },
   { floor: [0x4a5446, 0x434d40, 0x52604c, 0x3e473a], wall: [0x5d6b62, 0x56625a, 0x66756b, 0x4f5b53], accent: 0x3f7a4a },
   { floor: [0x4a3a38, 0x433331, 0x523f3c, 0x3c2e2c], wall: [0x5a4a4a, 0x524242, 0x635151, 0x4a3c3c], accent: 0x8a3a20 },
+  { floor: [0x4a5563, 0x434d5a, 0x52606e, 0x3d4652], wall: [0x6d7c8c, 0x657384, 0x768698, 0x5d6a7a], accent: 0x8fc4e8 },
+  { floor: [0x3e3448, 0x382f41, 0x463b52, 0x332a3c], wall: [0x554868, 0x4d4160, 0x5e5072, 0x463b58], accent: 0x7a4ab0 },
+  { floor: [0x2c2828, 0x262222, 0x332e2d, 0x221e1e], wall: [0x3e3838, 0x373131, 0x463f3e, 0x302b2b], accent: 0xd0501a },
 ];
 
 /** Builds the static level geometry as a handful of InstancedMeshes. */

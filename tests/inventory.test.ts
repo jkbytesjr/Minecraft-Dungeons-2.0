@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BAG_SIZE, Inventory, MAX_POTIONS, computeStats } from '../src/systems/inventory';
-import { addXp, levelBonuses, xpToNext } from '../src/systems/progression';
+import { addXp, newProgress, xpToNext } from '../src/systems/progression';
+import { PERKS, PERK_IDS, rollPerkChoices } from '../src/systems/perks';
+import { Rng } from '../src/core/rng';
 import type { ArmorItem, WeaponItem } from '../src/systems/loot';
 
 const spear: WeaponItem = {
@@ -47,13 +49,26 @@ describe('Inventory', () => {
 });
 
 describe('computeStats', () => {
-  it('sums level, base item stats and modifiers', () => {
-    const s = computeStats(3, { weapon: spear, armor: plate });
-    expect(s.maxHp).toBe(100 + 20 + 15 + 10);
+  it('sums base item stats and modifiers', () => {
+    const s = computeStats({}, { weapon: spear, armor: plate });
+    expect(s.maxHp).toBe(100 + 15 + 10);
     expect(s.armor).toBe(30);
-    expect(s.power).toBeCloseTo(1 + 0.12 + 0.1);
+    expect(s.power).toBeCloseTo(1 + 0.1);
     expect(s.critChance).toBeCloseTo(0.08 + 0.05);
     expect(s.weaponDamage).toBe(20);
+    expect(s.potionHeal).toBeCloseTo(0.4);
+    expect(s.cooldownRate).toBe(1);
+  });
+
+  it('adds level-up perks on top of gear', () => {
+    const base = computeStats({}, { weapon: spear, armor: plate });
+    const s = computeStats({ vitality: 2, might: 1, ferocity: 1, toughness: 1, alchemy: 1, focus: 2 }, { weapon: spear, armor: plate });
+    expect(s.maxHp - base.maxHp).toBe(50);
+    expect(s.power - base.power).toBeCloseTo(0.1);
+    expect(s.critMultiplier - base.critMultiplier).toBeCloseTo(0.3);
+    expect(s.armor - base.armor).toBe(8);
+    expect(s.potionHeal).toBeCloseTo(0.5);
+    expect(s.cooldownRate).toBeCloseTo(1.24);
   });
 });
 
@@ -63,13 +78,31 @@ describe('progression', () => {
   });
 
   it('carries leftover xp across multiple level-ups', () => {
-    const p = { level: 1, xp: 0 };
+    const p = newProgress();
     const gained = addXp(p, xpToNext(1) + xpToNext(2) + 5);
     expect(gained).toBe(2);
-    expect(p).toEqual({ level: 3, xp: 5 });
+    expect(p.level).toBe(3);
+    expect(p.xp).toBe(5);
   });
 
-  it('level bonuses start at zero', () => {
-    expect(levelBonuses(1)).toEqual({ maxHp: 0, power: 0 });
+  it('queues one attribute pick per level gained', () => {
+    const p = newProgress();
+    addXp(p, xpToNext(1) + xpToNext(2));
+    expect(p.pendingPicks).toBe(2);
+  });
+});
+
+describe('perk choices', () => {
+  it('offers three different perks', () => {
+    for (let seed = 1; seed < 50; seed++) {
+      const c = rollPerkChoices(new Rng(seed), {});
+      expect(c).toHaveLength(3);
+      expect(new Set(c).size).toBe(3);
+    }
+  });
+
+  it('never offers a maxed-out perk', () => {
+    const owned = Object.fromEntries(PERK_IDS.filter((id) => id !== 'might' && id !== 'haste').map((id) => [id, PERKS[id].max]));
+    for (let seed = 1; seed < 20; seed++) expect(rollPerkChoices(new Rng(seed), owned).sort()).toEqual(['haste', 'might']);
   });
 });

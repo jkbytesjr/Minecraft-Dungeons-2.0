@@ -14,6 +14,10 @@ export interface ProjectileSpec {
   attack: AttackStats;
   knockback: number;
   owner: ProjectileOwner;
+  /** Override the owner's default colour. */
+  color?: number;
+  /** Render as a chunky magic bolt instead of an arrow. */
+  orb?: boolean;
 }
 
 interface Projectile extends ProjectileSpec {
@@ -40,6 +44,8 @@ export class Projectiles {
   private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3(1, 1, 1);
+  private readonly orbScale = new THREE.Vector3(3.4, 3.4, 0.42);
+  private readonly c = new THREE.Color();
   private readonly playerColor = new THREE.Color(0xf2e6c8);
   private readonly enemyColor = new THREE.Color(0xff5a3c);
 
@@ -99,9 +105,10 @@ export class Projectiles {
 
     this.list.forEach((p, i) => {
       this.q.setFromAxisAngle(this.up, Math.atan2(p.dirX, p.dirZ));
-      this.m.compose(this.p.set(p.x, HEIGHT, p.z), this.q, this.s);
+      this.m.compose(this.p.set(p.x, HEIGHT, p.z), this.q, p.orb ? this.orbScale : this.s);
       this.mesh.setMatrixAt(i, this.m);
-      this.mesh.setColorAt(i, p.owner === 'player' ? this.playerColor : this.enemyColor);
+      if (p.color !== undefined) this.mesh.setColorAt(i, this.c.setHex(p.color));
+      else this.mesh.setColorAt(i, p.owner === 'player' ? this.playerColor : this.enemyColor);
     });
     this.mesh.count = this.list.length;
     this.mesh.instanceMatrix.needsUpdate = true;

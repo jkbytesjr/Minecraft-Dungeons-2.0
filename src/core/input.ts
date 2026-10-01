@@ -25,6 +25,11 @@ export class Input {
     return this.pressed.has(code);
   }
 
+  /** Mark a press as handled so nothing else this frame sees it. */
+  consume(code: string): void {
+    this.pressed.delete(code);
+  }
+
   endFrame(): void {
     this.pressed.clear();
     this.mouseClicked = false;

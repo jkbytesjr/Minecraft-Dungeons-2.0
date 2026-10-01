@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateDungeon, type Dungeon } from '../src/world/dungeonGen';
+import { BOSS_KINDS, FLOORS, bossOrder, generateDungeon, type Dungeon } from '../src/world/dungeonGen';
 import { Tile } from '../src/world/grid';
 
 /** Count floor tiles reachable from the player start (4-connected). */
@@ -45,7 +45,7 @@ describe('generateDungeon', () => {
   });
 
   for (const seed of SEEDS) {
-    for (const depth of [0, 2]) {
+    for (const depth of [0, 2, FLOORS - 1]) {
       it(`seed ${seed} depth ${depth}: connected, enclosed, sane spawns`, () => {
         const d = generateDungeon(seed, depth);
         const { grid } = d;
@@ -97,5 +97,35 @@ describe('generateDungeon', () => {
   it('deeper floors have more enemies on average', () => {
     const avg = (depth: number) => SEEDS.reduce((n, s) => n + generateDungeon(s, depth).spawns.length, 0) / SEEDS.length;
     expect(avg(2)).toBeGreaterThan(avg(0));
+  });
+
+  it('the deepest floor still has a sane enemy count', () => {
+    for (const seed of SEEDS) expect(generateDungeon(seed, FLOORS - 1).spawns.length).toBeLessThan(80);
+  });
+});
+
+describe('bossOrder', () => {
+  it('starts with the Colossus and shows every boss on floors 1-4', () => {
+    for (let seed = 1; seed < 200; seed++) {
+      const order = bossOrder(seed);
+      expect(order).toHaveLength(FLOORS);
+      expect(order[0]).toBe('colossus');
+      expect(new Set(order.slice(0, 4))).toEqual(new Set(BOSS_KINDS));
+    }
+  });
+
+  it('rematches are two different bosses, never back-to-back with floor 4', () => {
+    for (let seed = 1; seed < 200; seed++) {
+      const order = bossOrder(seed);
+      expect(order[4]).not.toBe(order[5]);
+      expect(order[4]).not.toBe(order[3]);
+    }
+  });
+
+  it('varies between seeds and matches the generated floors', () => {
+    const orders = new Set(Array.from({ length: 50 }, (_, i) => bossOrder(i).join()));
+    expect(orders.size).toBeGreaterThan(3);
+    const seed = 4242;
+    expect(Array.from({ length: FLOORS }, (_, d) => generateDungeon(seed, d).boss)).toEqual(bossOrder(seed));
   });
 });

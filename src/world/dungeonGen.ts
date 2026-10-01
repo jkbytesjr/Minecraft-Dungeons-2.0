@@ -8,6 +8,11 @@ import { placeTorches, type Level } from './level';
 
 export type RoomKind = 'start' | 'normal' | 'treasure' | 'boss';
 export type EnemyKind = 'grunt' | 'archer' | 'exploder' | 'boss';
+export type BossKind = 'colossus' | 'huntress' | 'pyromancer' | 'necromancer';
+export const BOSS_KINDS: readonly BossKind[] = ['colossus', 'huntress', 'pyromancer', 'necromancer'];
+
+/** Floors in a run. */
+export const FLOORS = 6;
 
 export interface Room {
   id: number;
@@ -35,6 +40,8 @@ export interface Dungeon extends Level {
   chests: { x: number; z: number }[];
   /** Where the exit portal appears (inside the boss room). */
   exit: { x: number; z: number };
+  /** Which boss guards this floor. */
+  boss: BossKind;
 }
 
 const SIZE = 72;
@@ -54,10 +61,24 @@ function overlaps(a: Room, b: Room, margin: number): boolean {
 /** Enemy mix shifts toward ranged/explosive enemies on deeper floors. */
 function enemyWeights(depth: number): [EnemyKind, number][] {
   return [
-    ['grunt', 60 - depth * 8],
-    ['archer', 20 + depth * 4],
-    ['exploder', 20 + depth * 4],
+    ['grunt', Math.max(24, 60 - depth * 8)],
+    ['archer', 20 + Math.min(depth, 5) * 4],
+    ['exploder', 20 + Math.min(depth, 5) * 4],
   ];
+}
+
+/**
+ * The boss for every floor of a run. Floor 1 is always the Colossus (the
+ * gentlest fight); floors 2-4 are the other three in a seeded order, so each
+ * boss appears once. Floors 5-6 are rematches with two different bosses, and
+ * floor 5 never repeats floor 4's boss.
+ */
+export function bossOrder(seed: number): BossKind[] {
+  const rng = new Rng(hashSeed(`${seed}:bosses`));
+  const first: BossKind[] = ['colossus', ...rng.shuffle(BOSS_KINDS.filter((b) => b !== 'colossus'))];
+  const rematch = rng.shuffle([...BOSS_KINDS]).slice(0, FLOORS - first.length);
+  if (rematch[0] === first[first.length - 1]) rematch.reverse();
+  return [...first, ...rematch];
 }
 
 export function generateDungeon(seed: number, depth: number): Dungeon {
@@ -168,7 +189,8 @@ export function generateDungeon(seed: number, depth: number): Dungeon {
     if (r.kind === 'start') continue;
     if (r.kind === 'normal' || r.kind === 'treasure') {
       const area = r.w * r.h;
-      const count = Math.round(area / 22) + depth + rng.int(0, 1);
+      // Deeper floors add enemies per room, up to a cap; beyond that they just hit harder.
+      const count = Math.round(area / 22) + Math.min(depth, 3) + rng.int(0, 1);
       for (let i = 0; i < count; i++) {
         const t = freeTile(r, 1);
         if (t) spawns.push({ kind: rng.weighted(enemyWeights(depth)), ...t, roomId: r.id });
@@ -192,6 +214,7 @@ export function generateDungeon(seed: number, depth: number): Dungeon {
     spawns,
     chests,
     exit,
+    boss: bossOrder(seed)[depth % FLOORS],
     theme: depth,
     torches: placeTorches(grid, 6),
     playerStart: { x: sc.x + 0.5, z: sc.z + 0.5 },

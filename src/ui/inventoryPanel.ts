@@ -2,6 +2,7 @@ import type { Player } from '../entities/player';
 import { BAG_SIZE, computeStats, type DerivedStats } from '../systems/inventory';
 import { RARITY_COLOR, describeModifier, type Item } from '../systems/loot';
 import { BASE_WEAPONS } from '../systems/weapons';
+import { PERKS, PERK_IDS } from '../systems/perks';
 
 /** Minimal inline SVG glyphs, so no image assets are needed. */
 const ICONS: Record<string, string> = {
@@ -14,7 +15,7 @@ const ICONS: Record<string, string> = {
     '<svg viewBox="0 0 24 24"><path d="M7 3l5 2 5-2 4 4-2 3v11H5V10L3 7z" fill="#8b8f99"/><path d="M9 9h6v2H9z" fill="#5c606a"/></svg>',
 };
 
-function iconFor(item: Item): string {
+export function iconFor(item: Item): string {
   return ICONS[item.kind === 'weapon' ? item.weapon : 'armor'];
 }
 
@@ -80,6 +81,13 @@ export class InventoryPanel {
         ? `<button type="button" class="slot filled" style="--rarity:${RARITY_COLOR[item.rarity]}" ${attrs}>${iconFor(item)}</button>`
         : `<div class="slot empty" title="${label}"><span>${label}</span></div>`;
 
+    const picked = PERK_IDS.filter((id) => (p.progress.perks[id] ?? 0) > 0);
+    const perkList = picked.length
+      ? `<h3>Attributes</h3><div class="perk-tags">${picked
+          .map((id) => `<span class="perk-tag" style="--perk:${PERKS[id].color}" title="${PERKS[id].description}">${PERKS[id].name} ${p.progress.perks[id]}</span>`)
+          .join('')}</div>`
+      : '';
+
     const bag = Array.from({ length: BAG_SIZE }, (_, i) =>
       inv.bag[i] ? slot(inv.bag[i], '', `data-bag="${i}"`) : '<div class="slot empty"></div>',
     ).join('');
@@ -106,6 +114,7 @@ export class InventoryPanel {
             <li><span>Life on hit</span><b>${s.lifeOnHit}</b></li>
             <li><span>Potions</span><b>${inv.potions}</b></li>
           </ul>
+          ${perkList}
         </section>
         <section class="inv-bag"><h3>Bag (${inv.bag.length}/${BAG_SIZE})</h3><div class="bag-grid">${bag}</div></section>
       </div>`;
@@ -148,7 +157,7 @@ export class InventoryPanel {
         armor: item.kind === 'armor' ? item : inv.armor,
       };
       const now = p.stats;
-      const next = computeStats(p.progress.level, swapped);
+      const next = computeStats(p.progress.perks, swapped);
       const lines = COMPARE.flatMap(({ key, label, pct }) => {
         const d = next[key] - now[key];
         if (Math.abs(d) < 0.001) return [];

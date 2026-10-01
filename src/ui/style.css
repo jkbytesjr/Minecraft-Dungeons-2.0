@@ -644,3 +644,146 @@ body {
   font-size: 12px;
   opacity: 0.6;
 }
+
+/* ---- Equipped gear slots, level-up choices, attribute tags ---- */
+
+.gear {
+  display: flex;
+  gap: 6px;
+}
+
+.gear-slot {
+  pointer-events: auto;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  background: rgb(14 12 20 / 0.85);
+  border: 2px solid var(--rarity, rgb(255 255 255 / 0.15));
+  border-radius: 6px;
+  box-shadow:
+    0 2px 6px rgb(0 0 0 / 0.5),
+    inset 0 0 10px color-mix(in srgb, var(--rarity, transparent) 35%, transparent);
+}
+
+.gear-slot svg {
+  width: 30px;
+  height: 30px;
+}
+
+.gear-slot.empty span {
+  font-size: 9px;
+  opacity: 0.45;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.levelup {
+  pointer-events: auto;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: radial-gradient(ellipse at center, rgb(20 14 30 / 0.75), rgb(5 4 8 / 0.9));
+  animation: levelup-in 0.25s ease-out;
+}
+
+@keyframes levelup-in {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+}
+
+.levelup h1 {
+  margin: 0;
+  font-size: 40px;
+  color: #ffd23f;
+  text-shadow: 0 2px 12px rgb(255 180 40 / 0.5);
+}
+
+.levelup-sub {
+  margin: 6px 0 22px;
+  opacity: 0.8;
+}
+
+.perk-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  max-width: 100%;
+}
+
+.perk {
+  position: relative;
+  width: 190px;
+  min-height: 150px;
+  padding: 18px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  color: #eee;
+  text-align: center;
+  cursor: pointer;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--perk) 22%, #17131f), #120f18);
+  border: 2px solid color-mix(in srgb, var(--perk) 70%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.5);
+  transition:
+    transform 0.12s,
+    box-shadow 0.12s;
+}
+
+.perk:hover,
+.perk:focus-visible {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--perk) 45%, transparent);
+  outline: none;
+}
+
+.perk-key {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.6;
+}
+
+.perk-name {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--perk);
+}
+
+.perk-desc {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.perk-rank {
+  margin-top: auto;
+  font-size: 11px;
+  opacity: 0.55;
+}
+
+.perk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.perk-tag {
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--perk);
+  border: 1px solid color-mix(in srgb, var(--perk) 60%, transparent);
+  border-radius: 10px;
+}

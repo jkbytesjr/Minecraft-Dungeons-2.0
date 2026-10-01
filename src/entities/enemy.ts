@@ -1,4 +1,4 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import { Actor } from './actor';
 import { HealthBar } from './healthBar';
 import type { HumanoidParts } from './voxelModel';
@@ -31,6 +31,8 @@ export abstract class Enemy extends Actor {
   abstract readonly kind: string;
   abstract readonly xp: number;
   readonly healthBar: HealthBar;
+  /** World-space effects (ground telegraphs) that must not move or turn with the model. */
+  readonly worldFx = new THREE.Group();
   protected readonly model: HumanoidParts;
   /** Multiplies outgoing damage; raised on deeper floors. */
   damageMult = 1;

@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import { Actor } from './actor';
-import { buildHumanoid, voxelBox, type HumanoidParts } from './voxelModel';
+import { buildHumanoid, type HumanoidParts } from './voxelModel';
+import { attachArmor, buildWeaponMesh } from './gearModel';
 import type { TileGrid } from '../world/grid';
 import { BASE_WEAPONS, type WeaponDef, type WeaponKind } from '../systems/weapons';
 import type { AttackStats } from '../systems/damage';
 import { Inventory, computeStats, type DerivedStats } from '../systems/inventory';
-import { addXp, type Progress } from '../systems/progression';
+import { addXp, newProgress, type Progress } from '../systems/progression';
+import type { ArmorItem, WeaponItem } from '../systems/loot';
+import type { PerkId } from '../systems/perks';
 
 export interface PlayerInput {
   /** Desired move direction on XZ (not necessarily normalized). */
@@ -30,32 +33,13 @@ const SLAM_TIME = 0.42;
 export const SLAM_COOLDOWN = 6;
 export const VOLLEY_COOLDOWN = 8;
 const POTION_COOLDOWN = 1;
-const POTION_HEAL = 0.4;
-
-/** Build the held-weapon mesh. Swords/spears go in the right hand, bows in the left. */
-function buildWeaponMesh(kind: WeaponKind): THREE.Group {
-  const g = new THREE.Group();
-  if (kind === 'sword') {
-    g.add(voxelBox([0.07, 0.07, 0.85], 0xd7dde3, [0, -0.5, 0.5]), voxelBox([0.28, 0.08, 0.08], 0x8a6a2a, [0, -0.5, 0.1]));
-  } else if (kind === 'spear') {
-    g.add(voxelBox([0.06, 0.06, 1.7], 0x7a5530, [0, -0.5, 0.45]), voxelBox([0.12, 0.12, 0.3], 0xcfd6dd, [0, -0.5, 1.4]));
-  } else {
-    g.add(
-      voxelBox([0.06, 0.06, 0.95], 0x8a5a2b, [0, -0.5, 0.06]),
-      voxelBox([0.06, 0.12, 0.08], 0x8a5a2b, [0, -0.44, 0.5]),
-      voxelBox([0.06, 0.12, 0.08], 0x8a5a2b, [0, -0.44, -0.38]),
-      voxelBox([0.015, 0.015, 0.9], 0xeeeeee, [0, -0.38, 0.06]),
-    );
-  }
-  return g;
-}
 
 export class Player extends Actor {
   readonly radius = 0.3;
   readonly model: HumanoidParts;
   inventory = new Inventory();
-  progress: Progress = { level: 1, xp: 0 };
-  stats: DerivedStats = computeStats(1, this.inventory);
+  progress: Progress = newProgress();
+  stats: DerivedStats = computeStats({}, this.inventory);
 
   /** Single-frame flags consumed by the world. */
   strikeReady = false;
@@ -68,7 +52,6 @@ export class Player extends Actor {
   slamCooldown = 0;
   volleyCooldown = 0;
   potionCooldown = 0;
-  readonly dodgeCooldownMax = DODGE_COOLDOWN;
   private swingTimer = 0;
   private struck = true;
   private dodgeTimer = 0;
@@ -78,7 +61,9 @@ export class Player extends Actor {
   private walkPhase = 0;
   private deathTimer = 0;
   private heldWeapon: THREE.Group | null = null;
-  private heldKind: WeaponKind | null = null;
+  private heldItem: WeaponItem | null = null;
+  private wornItem: ArmorItem | null = null;
+  private armorParts: THREE.Object3D[] = [];
 
   constructor() {
     super(100);
@@ -92,6 +77,18 @@ export class Player extends Actor {
 
   get weapon(): WeaponDef {
     return BASE_WEAPONS[this.inventory.weapon.weapon];
+  }
+
+  get dodgeCooldownMax(): number {
+    return DODGE_COOLDOWN / this.stats.cooldownRate;
+  }
+
+  get slamCooldownMax(): number {
+    return SLAM_COOLDOWN / this.stats.cooldownRate;
+  }
+
+  get volleyCooldownMax(): number {
+    return VOLLEY_COOLDOWN / this.stats.cooldownRate;
   }
 
   get dodging(): boolean {
@@ -114,24 +111,42 @@ export class Player extends Actor {
   /** Start a brand-new run: fresh gear and level 1. */
   resetProgress(): void {
     this.inventory = new Inventory();
-    this.progress = { level: 1, xp: 0 };
+    this.progress = newProgress();
     this.refreshEquipment();
   }
 
   /** Recompute stats after gear or level changes, keeping the HP fraction. */
   refreshEquipment(): void {
     const ratio = this.maxHp > 0 ? this.hp / this.maxHp : 1;
-    this.stats = computeStats(this.progress.level, this.inventory);
+    this.stats = computeStats(this.progress.perks, this.inventory);
     this.maxHp = this.stats.maxHp;
     this.hp = Math.min(this.maxHp, Math.max(1, Math.round(this.maxHp * ratio)));
     this.armor = this.stats.armor;
-    const kind = this.inventory.weapon.weapon;
-    if (kind !== this.heldKind) {
+    const weapon = this.inventory.weapon;
+    if (weapon !== this.heldItem) {
       if (this.heldWeapon) this.heldWeapon.removeFromParent();
-      this.heldWeapon = buildWeaponMesh(kind);
-      (kind === 'bow' ? this.model.armL : this.model.armR).add(this.heldWeapon);
-      this.heldKind = kind;
+      this.heldWeapon = buildWeaponMesh(weapon);
+      (weapon.weapon === 'bow' ? this.model.armL : this.model.armR).add(this.heldWeapon);
+      this.heldItem = weapon;
     }
+    const armor = this.inventory.armor;
+    if (armor !== this.wornItem) {
+      for (const o of this.armorParts) o.removeFromParent();
+      this.armorParts = armor ? attachArmor(this.model, armor) : [];
+      this.wornItem = armor;
+    }
+  }
+
+  /** Spend a pending level-up pick on `id`. */
+  choosePerk(id: PerkId): void {
+    if (this.progress.pendingPicks <= 0) return;
+    this.progress.pendingPicks--;
+    this.progress.perks[id] = (this.progress.perks[id] ?? 0) + 1;
+    if (id === 'alchemy') this.inventory.addPotion();
+    const missing = this.maxHp - this.hp;
+    this.refreshEquipment();
+    // New max HP from Vitality arrives filled, rather than as a scaled fraction.
+    this.hp = Math.max(1, this.maxHp - missing);
   }
 
   /** Returns levels gained. Level-ups fully heal. */
@@ -201,7 +216,7 @@ export class Player extends Actor {
       this.inventory.potions--;
       this.potionCooldown = POTION_COOLDOWN;
       const before = this.hp;
-      this.heal(Math.round(this.maxHp * POTION_HEAL));
+      this.heal(Math.round(this.maxHp * this.stats.potionHeal));
       this.potionHealed = this.hp - before;
     }
 
@@ -213,7 +228,7 @@ export class Player extends Actor {
       this.dodgeDir.x = moving ? mx : ax / al;
       this.dodgeDir.z = moving ? mz : az / al;
       this.dodgeTimer = DODGE_TIME;
-      this.dodgeCooldown = DODGE_COOLDOWN;
+      this.dodgeCooldown = this.dodgeCooldownMax;
       this.swingTimer = 0;
       this.struck = true;
     }
@@ -237,13 +252,13 @@ export class Player extends Actor {
 
     // Abilities.
     if (input.slam && this.slamCooldown <= 0 && this.slamTimer <= 0) {
-      this.slamCooldown = SLAM_COOLDOWN;
+      this.slamCooldown = this.slamCooldownMax;
       this.slamTimer = SLAM_TIME;
       this.swingTimer = 0;
       this.struck = true;
     }
     if (input.volley && this.volleyCooldown <= 0) {
-      this.volleyCooldown = VOLLEY_COOLDOWN;
+      this.volleyCooldown = this.volleyCooldownMax;
       this.volleyReady = true;
     }
 

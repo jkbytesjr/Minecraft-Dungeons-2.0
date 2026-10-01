@@ -1,7 +1,8 @@
 import type { Player } from '../entities/player';
 import type { Boss } from '../entities/boss';
-import { SLAM_COOLDOWN, VOLLEY_COOLDOWN } from '../entities/player';
 import { xpToNext } from '../systems/progression';
+import { RARITY_COLOR, describeModifier, type Item } from '../systems/loot';
+import { iconFor } from './inventoryPanel';
 
 const GLYPHS = {
   potion:
@@ -59,6 +60,10 @@ export class Hud {
   private readonly flash: HTMLDivElement;
   private readonly controls: HTMLDivElement;
   private readonly soundHint: HTMLSpanElement;
+  private readonly gearWeapon: HTMLDivElement;
+  private readonly gearArmor: HTMLDivElement;
+  private shownWeapon: Item | null = null;
+  private shownArmor: Item | null | undefined = undefined;
   private lastHp = -1;
   private lastRunText = '';
   private lastBossHp = -1;
@@ -72,6 +77,10 @@ export class Hud {
       <div class="boss-bar hidden"><div class="boss-name"></div><div class="boss-track"><div class="boss-fill"></div></div></div>
       <div class="toasts"></div>
       <div class="hud-bottom">
+        <div class="gear">
+          <div class="gear-slot" data-gear="weapon"></div>
+          <div class="gear-slot" data-gear="armor"></div>
+        </div>
         ${ability('potion', '1', 'Health potion (1)')}
         <div class="vitals">
           <div class="hp-bar"><div class="hp-fill"></div><span class="hp-text"></span></div>
@@ -127,6 +136,8 @@ export class Hud {
     this.bossFill = root.querySelector('.boss-fill')!;
     this.toasts = root.querySelector('.toasts')!;
     this.runInfo = root.querySelector('.run-info')!;
+    this.gearWeapon = root.querySelector('[data-gear="weapon"]')!;
+    this.gearArmor = root.querySelector('[data-gear="armor"]')!;
     this.vignette = root.querySelector('.vignette')!;
     this.flash = root.querySelector('.hurt-flash')!;
     this.controls = root.querySelector('.controls-panel')!;
@@ -145,14 +156,39 @@ export class Hud {
       this.vignette.classList.toggle('low', low);
     }
     this.setAbility('dodge', player.dodgeCooldown / player.dodgeCooldownMax);
-    this.setAbility('slam', player.slamCooldown / SLAM_COOLDOWN);
-    this.setAbility('volley', player.volleyCooldown / VOLLEY_COOLDOWN);
+    this.setAbility('slam', player.slamCooldown / player.slamCooldownMax);
+    this.setAbility('volley', player.volleyCooldown / player.volleyCooldownMax);
     const potions = player.inventory.potions;
     this.setAbility('potion', potions > 0 ? player.potionCooldown : 1);
     this.potionCount.textContent = String(potions);
+    const inv = player.inventory;
+    if (inv.weapon !== this.shownWeapon) {
+      this.shownWeapon = inv.weapon;
+      this.renderGear(this.gearWeapon, inv.weapon, 'Weapon');
+    }
+    if (inv.armor !== this.shownArmor) {
+      this.shownArmor = inv.armor;
+      this.renderGear(this.gearArmor, inv.armor, 'Armor');
+    }
     const { level, xp } = player.progress;
     this.levelBadge.textContent = `Lv ${level}`;
     this.xpFill.style.width = `${Math.min(100, (xp / xpToNext(level)) * 100)}%`;
+  }
+
+  /** Equipped-item slot: icon framed in its rarity colour, details on hover. */
+  private renderGear(el: HTMLElement, item: Item | null, label: string): void {
+    if (!item) {
+      el.className = 'gear-slot empty';
+      el.innerHTML = `<span>${label}</span>`;
+      el.title = `No ${label.toLowerCase()} equipped`;
+      el.style.removeProperty('--rarity');
+      return;
+    }
+    el.className = 'gear-slot';
+    el.style.setProperty('--rarity', RARITY_COLOR[item.rarity]);
+    el.innerHTML = iconFor(item);
+    const base = item.kind === 'weapon' ? `${item.damage} damage` : `${item.armor} armor, +${item.maxHp} max HP`;
+    el.title = [item.name, base, ...item.mods.map(describeModifier)].join('\n');
   }
 
   private setAbility(name: AbilityName, cooldownFraction: number): void {

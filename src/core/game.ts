@@ -3,7 +3,7 @@ import { CameraRig } from './cameraRig';
 import { Input } from './input';
 import { EventBus } from './events';
 import { GameWorld } from './gameWorld';
-import { generateDungeon, type EnemyKind } from '../world/dungeonGen';
+import { FLOORS, generateDungeon, type EnemyKind } from '../world/dungeonGen';
 import { cutoutUniforms } from '../world/wallCutout';
 import { FpsMeter } from '../ui/fpsMeter';
 import { Hud } from '../ui/hud';
@@ -16,10 +16,12 @@ import { Particles } from '../systems/particles';
 import { Sfx } from '../systems/audio';
 import { DamageNumbers } from '../ui/damageNumbers';
 import { Minimap } from '../ui/minimap';
+import { LevelUpPanel } from '../ui/levelUpPanel';
+import { rollPerkChoices } from '../systems/perks';
+import { hashSeed } from './rng';
 
 /** Longest real frame we account for; anything longer (tab switch, debugger) is dropped. */
 const MAX_FRAME = 0.25;
-export const FLOORS = 3;
 
 /** Debris colors per enemy kind. */
 const GIBS: Record<string, [number, number]> = {
@@ -46,6 +48,9 @@ export class Game {
   private readonly hud: Hud;
   private readonly inventory: InventoryPanel;
   private readonly minimap: Minimap;
+  private readonly levelUp: LevelUpPanel;
+  /** Smoke tests set this so level-ups don't stop the game waiting for a choice. */
+  autoPerk = false;
   private readonly damageNumbers: DamageNumbers;
   readonly particles = new Particles();
   readonly sfx = new Sfx();
@@ -92,6 +97,8 @@ export class Game {
     this.damageNumbers = new DamageNumbers(hudRoot);
     this.minimap = new Minimap(hudRoot);
     this.inventory = new InventoryPanel(hudRoot, () => {});
+    this.levelUp = new LevelUpPanel(hudRoot);
+    this.levelUp.onPick = (id) => this.world.player.choosePerk(id);
     this.wireEffects();
 
     this.startRun(this.seed);
@@ -165,6 +172,10 @@ export class Game {
       fx.ring(e.x, e.z, e.radius, 0xff6a2c, 30);
       sfx.explosion();
     });
+    events.on('teleport', (e) => {
+      fx.burst(e.x, 1, e.z, { count: 30, color: 0xb07cff, color2: 0x2a1f3a, speed: [0.5, 2.5], up: [1, 4], gravity: -0.2, life: [0.5, 0.9], spread: 0.5 });
+      sfx.dodge();
+    });
     events.on('dodge', (e) => {
       fx.burst(e.x, 0.1, e.z, { count: 10, color: 0x8a7f6a, speed: [0.5, 1.5], up: [0.5, 1.5], life: [0.3, 0.5] });
       sfx.dodge();
@@ -218,13 +229,14 @@ export class Game {
     this.stepper.reset();
     this.hud.showDeath(false);
     this.inventory.setOpen(false, this.world.player);
+    this.levelUp.hide();
     this.hud.setFloor(depth + 1, FLOORS, this.seed);
     this.hud.toast(`Floor ${depth + 1}`, 'info');
     this.rig.snapTo(this.focus.set(level.playerStart.x, 0, level.playerStart.z));
   }
 
   private get paused(): boolean {
-    return this.inventory.open || this.hud.controlsOpen;
+    return this.inventory.open || this.hud.controlsOpen || this.levelUp.open;
   }
 
   private frame = (time: number): void => {
@@ -276,17 +288,52 @@ export class Game {
   /** Menu and toggle keys: handled once per rendered frame, paused or not. */
   private handleUiKeys(): void {
     const { input, world } = this;
+    this.updateLevelUp();
+    if (this.levelUp.open) {
+      for (const [i, code] of ['Digit1', 'Digit2', 'Digit3'].entries()) {
+        if (input.wasPressed(code) && this.levelUp.pick(i)) {
+          input.consume(code);
+          break;
+        }
+      }
+    }
     if (input.wasPressed('F3')) this.fps.toggle();
     if (input.wasPressed('KeyM')) this.hud.setMuted(this.sfx.toggleMute());
     if (input.wasPressed('KeyR') && !world.player.alive) this.restart();
-    if (input.wasPressed('KeyH') && !this.inventory.open) this.hud.toggleControls();
-    if ((input.wasPressed('Tab') || input.wasPressed('KeyI')) && world.player.alive && !this.finished && !this.hud.controlsOpen)
+    if (input.wasPressed('KeyH') && !this.inventory.open && !this.levelUp.open) this.hud.toggleControls();
+    if (
+      (input.wasPressed('Tab') || input.wasPressed('KeyI')) &&
+      world.player.alive &&
+      !this.finished &&
+      !this.hud.controlsOpen &&
+      !this.levelUp.open
+    )
       this.inventory.toggle(world.player);
     if (input.wasPressed('Escape')) {
       if (this.inventory.open) this.inventory.setOpen(false, world.player);
       this.hud.toggleControls(false);
     }
     if (import.meta.env.DEV && input.wasPressed('BracketRight') && !this.paused) this.loadFloor((this.depth + 1) % FLOORS);
+  }
+
+  /** Offer the next queued attribute pick once nothing else is on screen. */
+  private updateLevelUp(): void {
+    const p = this.world.player;
+    const prog = p.progress;
+    if (this.levelUp.open || prog.pendingPicks <= 0 || !p.alive || this.finished || this.inventory.open) return;
+    const taken = Object.values(prog.perks).reduce((a, b) => a + (b ?? 0), 0);
+    // Seeded by run and pick number, so a seed replays the same offers.
+    const choices = rollPerkChoices(new Rng(hashSeed(`${this.seed}:perk:${taken}`)), prog.perks);
+    if (choices.length === 0) {
+      prog.pendingPicks = 0;
+      return;
+    }
+    if (this.autoPerk) {
+      p.choosePerk(choices[0]);
+      return;
+    }
+    this.hud.toggleControls(false);
+    this.levelUp.show(prog.level - prog.pendingPicks + 1, prog.pendingPicks - 1, choices, prog.perks);
   }
 
   /**
@@ -446,13 +493,25 @@ export class Game {
     this.world.boss?.applyDamage(999999, 0, 0);
   }
 
-  debugExtra(): { projectiles: number; shots: number; portalActive: boolean; bossEngaged: boolean; depth: number } {
+  debugExtra(): {
+    projectiles: number;
+    shots: number;
+    portalActive: boolean;
+    bossEngaged: boolean;
+    bossKind: string | null;
+    depth: number;
+    floors: number;
+    levelUpOpen: boolean;
+  } {
     return {
       projectiles: this.world.projectiles.mesh.count,
       shots: this.shotsFired,
       portalActive: this.world.portal.active,
       bossEngaged: !!this.world.boss?.engaged,
+      bossKind: this.world.boss?.bossKind ?? null,
       depth: this.depth,
+      floors: FLOORS,
+      levelUpOpen: this.levelUp.open,
     };
   }
 

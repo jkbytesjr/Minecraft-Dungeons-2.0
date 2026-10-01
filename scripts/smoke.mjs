@@ -36,6 +36,8 @@ const waitSim = async (seconds) => {
 try {
   await page.goto('http://localhost:5199/?seed=777');
   await page.waitForFunction(() => window.__game && window.__stats, null, { timeout: 20000 });
+  // Level-up choices would pause the game mid-test; auto-pick except where tested.
+  await page.evaluate(() => (window.__game.autoPerk = true));
   await page.mouse.move(900, 300);
   await page.screenshot({ path: `${outDir}/01-start.png` });
 
@@ -90,9 +92,11 @@ try {
   // Dodge: player moves quickly and is flagged as dodging (i-frames).
   const d0 = await state();
   await page.keyboard.press('Space');
-  await page.waitForTimeout(60);
-  const d1 = await state();
-  check(d1.player.dodging, 'space starts a dodge roll');
+  // Wait for the next simulation tick to pick up the press (headless frames are slow).
+  const dodged = await page
+    .waitForFunction(() => window.__game.debugState().player.dodging, null, { polling: 'raf', timeout: 2000 })
+    .then(() => true, () => false);
+  check(dodged, 'space starts a dodge roll');
   await page.waitForTimeout(400);
   const d2 = await state();
   check(Math.hypot(d2.player.x - d0.player.x, d2.player.z - d0.player.z) > 1.5, 'dodge roll covers distance');
@@ -136,24 +140,34 @@ try {
   const ex = await state();
   check(ex.player.hp < ex.player.maxHp && !ex.enemies.some((e) => e.kind === 'exploder' && e.alive), `exploder detonates (hp ${ex.player.hp})`);
 
-  // Boss: walk into its arena, let it engage, then kill it and use the portal.
-  for (let depth = 0; depth < 3; depth++) {
+  // Bosses: walk into each arena, let the boss fight a while, then kill it and use the portal.
+  const floors = (await extra()).floors;
+  check(floors === 6, `a run has 6 floors (${floors})`);
+  const bossKinds = [];
+  for (let depth = 0; depth < floors; depth++) {
     const boss = (await state()).enemies.find((e) => e.kind === 'boss');
+    // Unkillable for this loop, so late bosses can't end the run early.
+    await page.evaluate(() => {
+      const p = window.__game.worldState.player;
+      p.maxHp = p.hp = 100000;
+    });
     await page.evaluate(({ x, z }) => window.__game.debugTeleport(x, z + 5), boss);
-    await waitSim(1.2);
-    if (depth === 0) {
-      check((await extra()).bossEngaged, 'boss engages when the player enters its arena');
-      check(await page.isVisible('.boss-bar'), 'boss health bar shows');
-      await page.screenshot({ path: `${outDir}/09-boss.png` });
-    }
+    await waitSim(2.5);
+    const info = await extra();
+    bossKinds.push(info.bossKind);
+    check(info.bossEngaged, `floor ${depth + 1}: ${info.bossKind} engages`);
+    if (depth === 0) check(await page.isVisible('.boss-bar'), 'boss health bar shows');
+    if (depth < 4) await page.screenshot({ path: `${outDir}/09-boss-${depth + 1}-${info.bossKind}.png` });
     await page.evaluate(() => window.__game.debugKillBoss());
     await page.waitForTimeout(300);
     if (depth === 0) check((await extra()).portalActive, 'portal opens after the boss dies');
     const exit = await page.evaluate(() => window.__game.level.exit);
     await page.evaluate(({ x, z }) => window.__game.debugTeleport(x, z), exit);
     await page.waitForTimeout(300);
-    if (depth < 2) check((await extra()).depth === depth + 1, `portal leads to floor ${depth + 2}`);
+    if (depth < floors - 1) check((await extra()).depth === depth + 1, `portal leads to floor ${depth + 2}`);
   }
+  check(bossKinds[0] === 'colossus' && new Set(bossKinds.slice(0, 4)).size === 4, `floors 1-4 have four different bosses (${bossKinds.join(', ')})`);
+  check(bossKinds[4] !== bossKinds[5] && bossKinds[4] !== bossKinds[3], 'floors 5-6 are two different rematches');
   check(await page.isVisible('.screen.victory'), 'victory screen after the final boss');
   await page.screenshot({ path: `${outDir}/10-victory.png` });
   await page.click('.new-run');
@@ -215,6 +229,12 @@ try {
   await page.keyboard.press('Tab');
   await page.waitForTimeout(100);
   check(!(await page.isVisible('.inventory')), 'Tab closes the inventory');
+  check(await page.evaluate(() => window.__game.worldState.player.armorParts.length > 0), 'equipped armor is shown on the character');
+  check(
+    (await page.locator('[data-gear="weapon"] svg').count()) === 1 && (await page.locator('[data-gear="armor"].empty').count()) === 0,
+    'HUD shows equipped weapon and armor',
+  );
+  await page.screenshot({ path: `${outDir}/12b-armor.png` });
 
   // Bow fires arrows; Q slam and E volley.
   await page.evaluate(() => {
@@ -254,6 +274,43 @@ try {
   await waitSim(0.1);
   const healed = await state();
   check(healed.player.hp > 20 && healed.player.potions === 1, `1 drinks a potion (hp ${healed.player.hp})`);
+
+  // --- Level-up attribute choice ---
+  await page.evaluate(() => window.__game.restart());
+  await waitSim(0.2);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.autoPerk = false;
+    const p = g.worldState.player;
+    p.hp = 30;
+    p.gainXp(1000);
+  });
+  await page.waitForTimeout(200);
+  const lv = await state();
+  check((await extra()).levelUpOpen && (await page.locator('.levelup .perk').count()) === 3, `level-up offers 3 attributes (level ${lv.player.level})`);
+  const simL = await page.evaluate(() => window.__game.simTime);
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => window.__game.simTime)) === simL, 'game is paused while choosing');
+  await page.screenshot({ path: `${outDir}/16-levelup.png` });
+  const before = await page.evaluate(() => {
+    const p = window.__game.worldState.player;
+    return { picks: p.progress.pendingPicks, potions: p.inventory.potions };
+  });
+  await page.keyboard.press('Digit1');
+  await page.waitForTimeout(150);
+  const after = await page.evaluate(() => {
+    const p = window.__game.worldState.player;
+    return { picks: p.progress.pendingPicks, potions: p.inventory.potions, perks: Object.values(p.progress.perks).reduce((a, b) => a + b, 0) };
+  });
+  check(after.perks === 1 && after.picks === before.picks - 1, `pressing 1 picks an attribute (${after.picks} picks left)`);
+  check(after.potions >= before.potions, 'picking with 1 does not also drink a potion');
+  // Click through any remaining picks.
+  for (let i = 0; i < 20 && (await extra()).levelUpOpen; i++) {
+    await page.click('.levelup .perk >> nth=1');
+    await page.waitForTimeout(80);
+  }
+  check(!(await extra()).levelUpOpen && (await state()).player.alive, 'clicking a card picks it and resumes');
+  await page.evaluate(() => (window.__game.autoPerk = true));
 
   // --- M6: particles, damage numbers, minimap, audio, HUD ---
   const fx = () => page.evaluate(() => window.__game.debugFx());

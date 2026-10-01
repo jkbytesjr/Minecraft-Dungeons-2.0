@@ -1,9 +1,18 @@
 /** XP and leveling. Pure logic, unit-tested. */
+import type { PerkCounts } from './perks';
 
 export interface Progress {
   level: number;
   /** XP accumulated toward the next level. */
   xp: number;
+  /** Level-up attribute picks taken so far. */
+  perks: PerkCounts;
+  /** Level-ups whose attribute hasn't been chosen yet. */
+  pendingPicks: number;
+}
+
+export function newProgress(): Progress {
+  return { level: 1, xp: 0, perks: {}, pendingPicks: 0 };
 }
 
 export const MAX_LEVEL = 30;
@@ -22,10 +31,6 @@ export function addXp(p: Progress, amount: number): number {
     gained++;
   }
   if (p.level >= MAX_LEVEL) p.xp = 0;
+  p.pendingPicks += gained;
   return gained;
-}
-
-/** Stat bonuses granted by character level alone. */
-export function levelBonuses(level: number): { maxHp: number; power: number } {
-  return { maxHp: 10 * (level - 1), power: 0.06 * (level - 1) };
 }
