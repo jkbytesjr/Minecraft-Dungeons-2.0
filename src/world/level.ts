@@ -1,4 +1,4 @@
-import { Tile, TileGrid } from './grid';
+import { Tile, type TileGrid } from './grid';
 
 export interface TorchSpot {
   /** World position of the torch flame. */
@@ -11,6 +11,8 @@ export interface Level {
   grid: TileGrid;
   torches: TorchSpot[];
   playerStart: { x: number; z: number };
+  /** Palette index for the voxel builder. */
+  theme: number;
 }
 
 /** Place torches on walls that face a floor tile, roughly every `spacing` tiles. */
@@ -36,21 +38,4 @@ export function placeTorches(grid: TileGrid, spacing: number): TorchSpot[] {
     }
   }
   return torches;
-}
-
-/** M1 test room: one big room with a few pillars and a side alcove. */
-export function buildTestLevel(): Level {
-  const grid = new TileGrid(32, 28);
-  grid.fillRect(4, 4, 22, 18, Tile.Floor);
-  grid.fillRect(26, 11, 4, 4, Tile.Floor);
-  for (const [px, pz] of [
-    [9, 9],
-    [19, 9],
-    [9, 16],
-    [19, 16],
-  ]) {
-    grid.fillRect(px, pz, 2, 2, Tile.Void);
-  }
-  grid.buildWalls();
-  return { grid, torches: placeTorches(grid, 5), playerStart: { x: 15, z: 13 } };
 }

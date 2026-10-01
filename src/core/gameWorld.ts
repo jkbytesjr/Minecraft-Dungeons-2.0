@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { Player, type PlayerInput } from '../entities/player';
 import type { Enemy, EnemyContext } from '../entities/enemy';
-import { Grunt } from '../entities/grunt';
-import type { Level } from '../world/level';
+import type { Dungeon } from '../world/dungeonGen';
+import { createEnemy } from '../entities/enemyFactory';
 import { buildLevelMeshes } from '../world/voxelBuilder';
 import { Torches } from '../world/torches';
 import { FlowField } from '../systems/flowField';
@@ -10,22 +10,20 @@ import { inArc } from '../systems/combat';
 import { rollDamage, type AttackStats } from '../systems/damage';
 import { Rng } from './rng';
 import type { EventBus } from './events';
-import { Tile } from '../world/grid';
 
-const WAVE_DELAY = 2.5;
+/** Enemies further than this from the player are frozen and hidden. */
+const ACTIVE_RANGE = 30;
 
 /** Owns everything in the simulation: level, player, enemies, and the rules between them. */
 export class GameWorld {
   readonly player = new Player();
   readonly enemies: Enemy[] = [];
-  level!: Level;
+  level!: Dungeon;
   private readonly root = new THREE.Group();
   private levelGroup = new THREE.Group();
   private torches!: Torches;
   private flow!: FlowField;
   private rng = new Rng(1);
-  private waveTimer = 0;
-  private wave = 0;
   private ctx!: EnemyContext;
   private deathAnnounced = false;
   private readonly focus = new THREE.Vector3();
@@ -38,20 +36,18 @@ export class GameWorld {
     this.root.add(this.player.object);
   }
 
-  load(level: Level, seed: number): void {
+  load(level: Dungeon): void {
     for (const e of this.enemies) this.removeEnemyObjects(e);
     this.enemies.length = 0;
     this.root.remove(this.levelGroup);
     this.level = level;
-    this.rng = new Rng(seed);
-    this.levelGroup = buildLevelMeshes(level, seed);
+    this.rng = new Rng(level.seed * 31 + level.depth);
+    this.levelGroup = buildLevelMeshes(level, level.seed + level.depth);
     this.torches = new Torches(level.torches);
     this.levelGroup.add(this.torches.group);
     this.root.add(this.levelGroup);
     this.flow = new FlowField(level.grid);
     this.player.respawn(level.playerStart.x, level.playerStart.z);
-    this.waveTimer = 0.5;
-    this.wave = 0;
     this.deathAnnounced = false;
     this.ctx = {
       player: this.player,
@@ -60,6 +56,7 @@ export class GameWorld {
       rng: this.rng,
       hitPlayer: (source, attack, knockback) => this.hitPlayer(source, attack, knockback),
     };
+    for (const s of level.spawns) this.spawn(createEnemy(s.kind, level.depth), s.x, s.z);
   }
 
   update(dt: number, input: PlayerInput, camera: THREE.Camera): void {
@@ -74,7 +71,11 @@ export class GameWorld {
     }
 
     this.flow.update(player.pos.x, player.pos.z);
-    for (const e of this.enemies) e.update(dt, this.ctx, camera);
+    for (const e of this.enemies) {
+      const near = Math.abs(e.pos.x - player.pos.x) < ACTIVE_RANGE && Math.abs(e.pos.z - player.pos.z) < ACTIVE_RANGE;
+      e.object.visible = near;
+      if (near) e.update(dt, this.ctx, camera);
+    }
     this.separate();
 
     for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -83,7 +84,6 @@ export class GameWorld {
         this.enemies.splice(i, 1);
       }
     }
-    this.updateWaves(dt);
     this.torches.update(dt, this.focus.set(player.pos.x, 0, player.pos.z));
   }
 
@@ -156,25 +156,6 @@ export class GameWorld {
         const d = Math.hypot(dx, dz);
         if (d < min && d > 0.001) level.grid.moveBox(a.pos, (dx / d) * (min - d), (dz / d) * (min - d), a.radius);
       }
-    }
-  }
-
-  /** M2 test arena: endless waves of grunts. Replaced by dungeon spawns in M3. */
-  private updateWaves(dt: number): void {
-    if (this.enemies.length > 0 || !this.player.alive) return;
-    this.waveTimer -= dt;
-    if (this.waveTimer > 0) return;
-    this.wave++;
-    this.waveTimer = WAVE_DELAY;
-    const count = Math.min(8, 2 + this.wave);
-    const { grid } = this.level;
-    for (let n = 0, tries = 0; n < count && tries < 500; tries++) {
-      const x = this.rng.int(0, grid.width - 1);
-      const z = this.rng.int(0, grid.height - 1);
-      if (grid.get(x, z) !== Tile.Floor) continue;
-      if (Math.hypot(x + 0.5 - this.player.pos.x, z + 0.5 - this.player.pos.z) < 7) continue;
-      this.spawn(new Grunt(), x + 0.5, z + 0.5);
-      n++;
     }
   }
 }

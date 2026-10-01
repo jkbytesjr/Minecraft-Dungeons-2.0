@@ -29,11 +29,13 @@ const check = (cond, msg) => {
 const state = () => page.evaluate(() => window.__game.debugState());
 
 try {
-  await page.goto('http://localhost:5199/');
+  await page.goto('http://localhost:5199/?seed=777');
   await page.waitForFunction(() => window.__game && window.__stats, null, { timeout: 20000 });
   await page.mouse.move(900, 300);
   await page.screenshot({ path: `${outDir}/01-start.png` });
 
+  const boot = await state();
+  check(boot.enemies.length > 8, `dungeon spawns enemies (${boot.enemies.length})`);
   const s0 = await state();
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(800);
@@ -103,6 +105,14 @@ try {
   await page.waitForTimeout(200);
   const r = await state();
   check(r.player.alive && r.player.hp === 100 && !(await page.isVisible('.screen.death')), 'restart restores the player');
+
+  // --- M3: floors render with their own theme ---
+  for (const depth of [1, 2]) {
+    await page.evaluate((d) => window.__game.loadFloor(d), depth);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${outDir}/06-floor${depth + 1}.png` });
+  }
+  await page.evaluate(() => window.__game.loadFloor(0));
 
   const stats = await page.evaluate(() => window.__stats);
   console.log(`stats (headless software GL, not representative): ${JSON.stringify(stats)}`);

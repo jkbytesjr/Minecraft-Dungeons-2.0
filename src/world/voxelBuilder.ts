@@ -2,8 +2,22 @@ import * as THREE from 'three';
 import { Tile } from './grid';
 import type { Level } from './level';
 import { Rng } from '../core/rng';
+import { applyWallCutout } from './wallCutout';
 
 const WALL_HEIGHT = 2;
+
+interface Theme {
+  floor: number[];
+  wall: number[];
+  accent: number;
+}
+
+/** One palette per dungeon floor: earthy stone, mossy ruins, ashen depths. */
+const THEMES: Theme[] = [
+  { floor: [0x5b5249, 0x544b43, 0x625850, 0x4d453e], wall: [0x6e6a66, 0x65615d, 0x75716c, 0x5e5a56], accent: 0x4a6b3a },
+  { floor: [0x4a5446, 0x434d40, 0x52604c, 0x3e473a], wall: [0x5d6b62, 0x56625a, 0x66756b, 0x4f5b53], accent: 0x3f7a4a },
+  { floor: [0x4a3a38, 0x433331, 0x523f3c, 0x3c2e2c], wall: [0x5a4a4a, 0x524242, 0x635151, 0x4a3c3c], accent: 0x8a3a20 },
+];
 
 /** Builds the static level geometry as a handful of InstancedMeshes. */
 export function buildLevelMeshes(level: Level, seed: number): THREE.Group {
@@ -12,6 +26,9 @@ export function buildLevelMeshes(level: Level, seed: number): THREE.Group {
   const group = new THREE.Group();
   const cube = new THREE.BoxGeometry(1, 1, 1);
   const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const wallMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  applyWallCutout(wallMaterial);
+  const theme = THEMES[level.theme % THEMES.length];
 
   let floorCount = 0;
   let wallCount = 0;
@@ -21,11 +38,10 @@ export function buildLevelMeshes(level: Level, seed: number): THREE.Group {
   }
 
   const floor = new THREE.InstancedMesh(cube, material, floorCount);
-  const walls = new THREE.InstancedMesh(cube, material, wallCount * WALL_HEIGHT);
+  const walls = new THREE.InstancedMesh(cube, wallMaterial, wallCount * WALL_HEIGHT);
   const m = new THREE.Matrix4();
   const c = new THREE.Color();
-  const floorPalette = [0x5b5249, 0x544b43, 0x625850, 0x4d453e];
-  const wallPalette = [0x6e6a66, 0x65615d, 0x75716c, 0x5e5a56];
+  const accent = new THREE.Color(theme.accent);
   let fi = 0;
   let wi = 0;
 
@@ -35,15 +51,15 @@ export function buildLevelMeshes(level: Level, seed: number): THREE.Group {
       if (t === Tile.Floor) {
         m.makeTranslation(x + 0.5, -0.5, z + 0.5);
         floor.setMatrixAt(fi, m);
-        c.setHex(rng.pick(floorPalette)).multiplyScalar(rng.range(0.9, 1.08));
-        // Occasional mossy tile for variety.
-        if (rng.chance(0.06)) c.lerp(new THREE.Color(0x4a6b3a), 0.45);
+        c.setHex(rng.pick(theme.floor)).multiplyScalar(rng.range(0.9, 1.08));
+        // Occasional moss / ember tile for variety.
+        if (rng.chance(0.06)) c.lerp(accent, 0.45);
         floor.setColorAt(fi++, c);
       } else if (t === Tile.Wall) {
         for (let y = 0; y < WALL_HEIGHT; y++) {
           m.makeTranslation(x + 0.5, y + 0.5, z + 0.5);
           walls.setMatrixAt(wi, m);
-          c.setHex(rng.pick(wallPalette)).multiplyScalar(rng.range(0.88, 1.06) * (y === WALL_HEIGHT - 1 ? 1.1 : 1));
+          c.setHex(rng.pick(theme.wall)).multiplyScalar(rng.range(0.88, 1.06) * (y === WALL_HEIGHT - 1 ? 1.1 : 1));
           walls.setColorAt(wi++, c);
         }
       }

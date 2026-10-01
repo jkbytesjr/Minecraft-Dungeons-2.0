@@ -69,7 +69,7 @@ export class Grunt extends Enemy {
         if (this.stateTime >= STRIKE) {
           const p = ctx.player;
           if (inArc(this.pos.x, this.pos.z, this.facing, p.pos.x, p.pos.z, ATTACK_RANGE + 0.35, Math.PI * 0.6, p.radius)) {
-            ctx.hitPlayer(this, { base: 10, power: 1, critChance: 0, critMultiplier: 1 }, 6);
+            ctx.hitPlayer(this, { base: 10, power: this.damageMult, critChance: 0, critMultiplier: 1 }, 6);
           }
           this.enter('recover');
         }

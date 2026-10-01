@@ -24,6 +24,8 @@ export abstract class Enemy extends Actor {
   abstract readonly xp: number;
   readonly healthBar: HealthBar;
   protected readonly model: HumanoidParts;
+  /** Multiplies outgoing damage; raised on deeper floors. */
+  damageMult = 1;
   protected walkPhase = 0;
   private deathTimer = 0;
 
@@ -35,6 +37,12 @@ export abstract class Enemy extends Actor {
 
   get object(): THREE.Object3D {
     return this.model.root;
+  }
+
+  scaleForDepth(depth: number): void {
+    this.maxHp = Math.round(this.maxHp * (1 + 0.4 * depth));
+    this.hp = this.maxHp;
+    this.damageMult = 1 + 0.3 * depth;
   }
 
   /** True once the death animation has finished and it can be removed. */

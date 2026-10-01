@@ -3,12 +3,21 @@ import { CameraRig } from './cameraRig';
 import { Input } from './input';
 import { EventBus } from './events';
 import { GameWorld } from './gameWorld';
-import { buildTestLevel } from '../world/level';
+import { generateDungeon } from '../world/dungeonGen';
+import { cutoutUniforms } from '../world/wallCutout';
 import { FpsMeter } from '../ui/fpsMeter';
 import { Hud } from '../ui/hud';
 import { Grunt } from '../entities/grunt';
 
 const MAX_DT = 1 / 30;
+export const FLOORS = 3;
+
+/** Seed from ?seed=123 in the URL, otherwise random. */
+function initialSeed(): number {
+  const param = new URLSearchParams(window.location.search).get('seed');
+  const parsed = param === null ? NaN : Number.parseInt(param, 10);
+  return Number.isFinite(parsed) ? parsed >>> 0 : Math.floor(Math.random() * 1e9);
+}
 
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
@@ -22,6 +31,8 @@ export class Game {
   private lastTime = -1;
   private readonly aim = new THREE.Vector3();
   private readonly focus = new THREE.Vector3();
+  seed = initialSeed();
+  depth = 0;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -47,7 +58,7 @@ export class Game {
     });
     this.events.on('playerDied', () => this.hud.showDeath(true));
 
-    this.restart();
+    this.startRun(this.seed);
     window.addEventListener('resize', this.onResize);
     if (import.meta.env.DEV) (window as unknown as { __game: Game }).__game = this;
   }
@@ -56,10 +67,23 @@ export class Game {
     this.renderer.setAnimationLoop(this.frame);
   }
 
+  /** Begin a fresh run from floor 1. */
+  startRun(seed: number): void {
+    this.seed = seed;
+    this.loadFloor(0);
+  }
+
+  /** Death restart: same seed, back to floor 1. */
   restart(): void {
-    const level = buildTestLevel();
-    this.world.load(level, 1);
+    this.startRun(this.seed);
+  }
+
+  loadFloor(depth: number): void {
+    this.depth = depth;
+    const level = generateDungeon(this.seed, depth);
+    this.world.load(level);
     this.hud.showDeath(false);
+    this.hud.setFloor(depth + 1, FLOORS, this.seed);
     this.rig.snapTo(this.focus.set(level.playerStart.x, 0, level.playerStart.z));
   }
 
@@ -76,6 +100,7 @@ export class Game {
     const { input, rig, world } = this;
     if (input.wasPressed('F3')) this.fps.toggle();
     if (input.wasPressed('KeyR') && !world.player.alive) this.restart();
+    if (import.meta.env.DEV && input.wasPressed('BracketRight')) this.loadFloor((this.depth + 1) % FLOORS);
 
     const f = rig.forward;
     const r = rig.right;
@@ -98,6 +123,7 @@ export class Game {
 
     this.focus.set(world.player.pos.x, 0, world.player.pos.z);
     rig.update(this.focus, dt);
+    cutoutUniforms.uCutTarget.value.set(world.player.pos.x, 0.9, world.player.pos.z);
     this.hud.update(world.player);
   }
 
