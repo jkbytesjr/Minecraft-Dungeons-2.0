@@ -20,6 +20,14 @@ export interface RunSummary {
   kills: number;
 }
 
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60)
+    .toString()
+    .padStart(2, '0');
+  return `${m}:${s}`;
+}
+
 function ability(name: AbilityName, key: string, title: string): string {
   const count = name === 'potion' ? '<span class="potion-count"></span>' : '';
   return `<div class="ability" data-ability="${name}" title="${title}">
@@ -35,7 +43,7 @@ export class Hud {
   onNewRun: () => void = () => {};
   private readonly hpFill: HTMLDivElement;
   private readonly hpText: HTMLSpanElement;
-  private readonly abilities = new Map<AbilityName, { el: HTMLElement; shade: HTMLElement }>();
+  private readonly abilities = new Map<AbilityName, { el: HTMLElement; shade: HTMLElement; last: number }>();
   private readonly potionCount: HTMLSpanElement;
   private readonly xpFill: HTMLDivElement;
   private readonly levelBadge: HTMLSpanElement;
@@ -46,12 +54,21 @@ export class Hud {
   private readonly bossName: HTMLDivElement;
   private readonly bossFill: HTMLDivElement;
   private readonly toasts: HTMLDivElement;
+  private readonly runInfo: HTMLDivElement;
+  private readonly vignette: HTMLDivElement;
+  private readonly flash: HTMLDivElement;
+  private readonly controls: HTMLDivElement;
+  private readonly soundHint: HTMLSpanElement;
   private lastHp = -1;
+  private lastRunText = '';
   private lastBossHp = -1;
 
   constructor(root: HTMLElement, onRestart: () => void) {
     root.innerHTML = `
+      <div class="vignette"></div>
+      <div class="hurt-flash"></div>
       <div class="floor-label"></div>
+      <div class="run-info"></div>
       <div class="boss-bar hidden"><div class="boss-name"></div><div class="boss-track"><div class="boss-fill"></div></div></div>
       <div class="toasts"></div>
       <div class="hud-bottom">
@@ -64,7 +81,23 @@ export class Hud {
         ${ability('volley', 'E', 'Arrow volley (E)')}
         ${ability('dodge', 'SPACE', 'Dodge roll (Space)')}
       </div>
-      <div class="key-hint">Tab · Inventory</div>
+      <div class="key-hint">Tab · Inventory &nbsp; H · Controls &nbsp; M · <span class="sound-hint">Sound on</span></div>
+      <div class="controls-panel hidden">
+        <h2>Controls</h2>
+        <dl>
+          <dt>W A S D</dt><dd>Move</dd>
+          <dt>Mouse</dt><dd>Aim</dd>
+          <dt>Left click</dt><dd>Attack (hold to keep swinging)</dd>
+          <dt>Space</dt><dd>Dodge roll (brief invulnerability)</dd>
+          <dt>Q</dt><dd>Ground slam</dd>
+          <dt>E</dt><dd>Arrow volley</dd>
+          <dt>1</dt><dd>Drink a health potion</dd>
+          <dt>Tab / I</dt><dd>Inventory (pauses)</dd>
+          <dt>M</dt><dd>Mute / unmute</dd>
+          <dt>F3</dt><dd>FPS meter</dd>
+        </dl>
+        <p class="hint">Find the boss on each floor, then step into the portal it leaves behind. Press H to close.</p>
+      </div>
       <div class="screen death hidden">
         <h1>You have fallen</h1>
         <button type="button" class="btn restart">Try again</button>
@@ -81,7 +114,7 @@ export class Hud {
     this.hpFill = root.querySelector('.hp-fill')!;
     this.hpText = root.querySelector('.hp-text')!;
     root.querySelectorAll<HTMLElement>('[data-ability]').forEach((el) => {
-      this.abilities.set(el.dataset.ability as AbilityName, { el, shade: el.querySelector('.ability-shade')! });
+      this.abilities.set(el.dataset.ability as AbilityName, { el, shade: el.querySelector('.ability-shade')!, last: -1 });
     });
     this.potionCount = root.querySelector('.potion-count')!;
     this.xpFill = root.querySelector('.xp-fill')!;
@@ -93,6 +126,11 @@ export class Hud {
     this.bossName = root.querySelector('.boss-name')!;
     this.bossFill = root.querySelector('.boss-fill')!;
     this.toasts = root.querySelector('.toasts')!;
+    this.runInfo = root.querySelector('.run-info')!;
+    this.vignette = root.querySelector('.vignette')!;
+    this.flash = root.querySelector('.hurt-flash')!;
+    this.controls = root.querySelector('.controls-panel')!;
+    this.soundHint = root.querySelector('.sound-hint')!;
     root.querySelector('.restart')!.addEventListener('click', onRestart);
     root.querySelector('.replay')!.addEventListener('click', onRestart);
     root.querySelector('.new-run')!.addEventListener('click', () => this.onNewRun());
@@ -103,6 +141,8 @@ export class Hud {
       this.lastHp = player.hp;
       this.hpFill.style.width = `${(player.hp / player.maxHp) * 100}%`;
       this.hpText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
+      const low = player.alive && player.hp / player.maxHp < 0.3;
+      this.vignette.classList.toggle('low', low);
     }
     this.setAbility('dodge', player.dodgeCooldown / player.dodgeCooldownMax);
     this.setAbility('slam', player.slamCooldown / SLAM_COOLDOWN);
@@ -117,7 +157,10 @@ export class Hud {
 
   private setAbility(name: AbilityName, cooldownFraction: number): void {
     const a = this.abilities.get(name)!;
-    const f = Math.max(0, Math.min(1, cooldownFraction));
+    // Quantize so the DOM is only touched when the shade visibly changes.
+    const f = Math.round(Math.max(0, Math.min(1, cooldownFraction)) * 100) / 100;
+    if (f === a.last) return;
+    a.last = f;
     a.shade.style.height = `${f * 100}%`;
     a.el.classList.toggle('ready', f <= 0);
   }
@@ -129,6 +172,34 @@ export class Hud {
     this.lastBossHp = boss.hp;
     this.bossName.textContent = boss.name;
     this.bossFill.style.width = `${(boss.hp / boss.maxHp) * 100}%`;
+  }
+
+  /** Run timer and kill count under the floor label. */
+  setRunInfo(seconds: number, kills: number): void {
+    const text = `${formatTime(seconds)} · ${kills} kill${kills === 1 ? '' : 's'}`;
+    if (text === this.lastRunText) return;
+    this.lastRunText = text;
+    this.runInfo.textContent = text;
+  }
+
+  /** Red edge flash when the player takes damage. */
+  hurt(): void {
+    this.flash.classList.remove('on');
+    // Force a reflow so the animation restarts on rapid hits.
+    void this.flash.offsetWidth;
+    this.flash.classList.add('on');
+  }
+
+  toggleControls(show = this.controls.classList.contains('hidden')): void {
+    this.controls.classList.toggle('hidden', !show);
+  }
+
+  get controlsOpen(): boolean {
+    return !this.controls.classList.contains('hidden');
+  }
+
+  setMuted(muted: boolean): void {
+    this.soundHint.textContent = muted ? 'Sound off' : 'Sound on';
   }
 
   setFloor(floor: number, total: number, seed: number): void {
@@ -153,11 +224,7 @@ export class Hud {
   showVictory(summary: RunSummary | null): void {
     this.victoryScreen.classList.toggle('hidden', !summary);
     if (!summary) return;
-    const m = Math.floor(summary.time / 60);
-    const sec = Math.floor(summary.time % 60)
-      .toString()
-      .padStart(2, '0');
     this.victoryScreen.querySelector('.summary')!.textContent =
-      `All floors cleared in ${m}:${sec} with ${summary.kills} kills · Seed ${summary.seed}`;
+      `All floors cleared in ${formatTime(summary.time)} with ${summary.kills} kills · Seed ${summary.seed}`;
   }
 }

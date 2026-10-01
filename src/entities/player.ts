@@ -61,6 +61,8 @@ export class Player extends Actor {
   strikeReady = false;
   slamReady = false;
   volleyReady = false;
+  /** HP restored by a potion this tick (0 if none). */
+  potionHealed = 0;
   attackCooldown = 0;
   dodgeCooldown = 0;
   slamCooldown = 0;
@@ -169,6 +171,7 @@ export class Player extends Actor {
 
   update(dt: number, input: PlayerInput, grid: TileGrid): void {
     this.strikeReady = this.slamReady = this.volleyReady = false;
+    this.potionHealed = 0;
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
     this.dodgeCooldown = Math.max(0, this.dodgeCooldown - dt);
     this.slamCooldown = Math.max(0, this.slamCooldown - dt);
@@ -197,7 +200,9 @@ export class Player extends Actor {
     if (input.potion && this.potionCooldown <= 0 && this.inventory.potions > 0 && this.hp < this.maxHp) {
       this.inventory.potions--;
       this.potionCooldown = POTION_COOLDOWN;
+      const before = this.hp;
       this.heal(Math.round(this.maxHp * POTION_HEAL));
+      this.potionHealed = this.hp - before;
     }
 
     // Dodge roll: commit to a direction (movement, else aim), brief i-frames.

@@ -11,9 +11,23 @@ import { InventoryPanel } from '../ui/inventoryPanel';
 import { RARITY_COLOR, rollItem } from '../systems/loot';
 import { Rng } from './rng';
 import { createEnemy } from '../entities/enemyFactory';
+import { FixedStep } from './fixedStep';
+import { Particles } from '../systems/particles';
+import { Sfx } from '../systems/audio';
+import { DamageNumbers } from '../ui/damageNumbers';
+import { Minimap } from '../ui/minimap';
 
-const MAX_DT = 1 / 30;
+/** Longest real frame we account for; anything longer (tab switch, debugger) is dropped. */
+const MAX_FRAME = 0.25;
 export const FLOORS = 3;
+
+/** Debris colors per enemy kind. */
+const GIBS: Record<string, [number, number]> = {
+  grunt: [0x6f8f52, 0x6b4a2e],
+  archer: [0x4a3a66, 0xc9b9a6],
+  exploder: [0xb4522c, 0xff8a3c],
+  boss: [0x2c2b33, 0xa070ff],
+};
 
 /** Seed from ?seed=123 in the URL, otherwise random. */
 function initialSeed(): number {
@@ -31,10 +45,19 @@ export class Game {
   private readonly world: GameWorld;
   private readonly hud: Hud;
   private readonly inventory: InventoryPanel;
+  private readonly minimap: Minimap;
+  private readonly damageNumbers: DamageNumbers;
+  readonly particles = new Particles();
+  readonly sfx = new Sfx();
   private readonly fps = new FpsMeter();
+  private readonly stepper = new FixedStep(1 / 60);
   private lastTime = -1;
+  /** Seconds of sustained low frame rate, for adaptive resolution. */
+  private slowTime = 0;
   private readonly aim = new THREE.Vector3();
   private readonly focus = new THREE.Vector3();
+  /** Edge-triggered actions pressed since the last simulation tick. */
+  private readonly pending = { dodge: false, slam: false, volley: false, potion: false };
   seed = initialSeed();
   depth = 0;
   /** Seconds since the run began (excludes time on end screens). */
@@ -59,34 +82,110 @@ export class Game {
     this.scene.add(new THREE.HemisphereLight(0x8a8fb8, 0x2a2018, 1.6));
     const moon = new THREE.DirectionalLight(0x9aa6ff, 0.6);
     moon.position.set(-5, 10, 3);
-    this.scene.add(moon);
+    this.scene.add(moon, this.particles.mesh);
 
+    const hudRoot = document.getElementById('hud')!;
     this.world = new GameWorld(this.scene, this.events);
-    this.hud = new Hud(document.getElementById('hud')!, () => this.restart());
+    this.hud = new Hud(hudRoot, () => this.restart());
     this.hud.onNewRun = () => this.startRun(Math.floor(Math.random() * 1e9));
-    this.inventory = new InventoryPanel(document.getElementById('hud')!, () => {});
-    this.events.on('itemPicked', ({ item }) => this.hud.toast(`Picked up ${item.name}`, 'loot', RARITY_COLOR[item.rarity]));
-    this.events.on('potionPicked', () => this.hud.toast('+1 Health potion', 'good'));
-    this.events.on('bagFull', () => this.hud.toast('Bag is full: salvage something (Tab)', 'danger'));
-    this.events.on('levelUp', ({ level }) => this.hud.toast(`Level up! You are now level ${level}`, 'good'));
-    this.events.on('hit', (e) => {
-      if (e.target === 'player') this.rig.shake(0.35);
-      else if (e.crit) this.rig.shake(0.15, 0.12);
-    });
-    this.events.on('shoot', (e) => {
-      if (e.owner === 'player') this.shotsFired++;
-    });
-    this.events.on('slam', (e) => this.rig.shake(e.radius > 2 ? 0.6 : 0.35, 0.35));
-    this.events.on('explosion', () => this.rig.shake(0.7, 0.4));
-    this.events.on('playerDied', () => this.hud.showDeath(true));
-    this.events.on('bossEngaged', (e) => this.hud.toast(`${e.name} awakens!`, 'danger'));
-    this.events.on('bossDefeated', () =>
-      this.hud.toast(this.depth + 1 < FLOORS ? 'The portal is open!' : 'The way out is open!', 'good'),
-    );
+    this.hud.setMuted(this.sfx.isMuted);
+    this.damageNumbers = new DamageNumbers(hudRoot);
+    this.minimap = new Minimap(hudRoot);
+    this.inventory = new InventoryPanel(hudRoot, () => {});
+    this.wireEffects();
 
     this.startRun(this.seed);
     window.addEventListener('resize', this.onResize);
     if (import.meta.env.DEV) (window as unknown as { __game: Game }).__game = this;
+  }
+
+  /** Toasts, particles, sounds, damage numbers and shake, all driven by game events. */
+  private wireEffects(): void {
+    const { events, hud, particles: fx, sfx, rig } = this;
+    const nums = this.damageNumbers;
+    events.on('itemPicked', ({ item }) => {
+      hud.toast(`Picked up ${item.name}`, 'loot', RARITY_COLOR[item.rarity]);
+      const p = this.world.player.pos;
+      fx.burst(p.x, 0.8, p.z, { count: 14, color: Number.parseInt(RARITY_COLOR[item.rarity].slice(1), 16), up: [3, 6], speed: [0.5, 2] });
+      sfx.pickup(item.rarity);
+    });
+    events.on('potionPicked', () => {
+      hud.toast('+1 Health potion', 'good');
+      sfx.pickup('potion');
+    });
+    events.on('bagFull', () => {
+      hud.toast('Bag is full: salvage something (Tab)', 'danger');
+      sfx.denied();
+    });
+    events.on('levelUp', ({ level }) => {
+      hud.toast(`Level up! You are now level ${level}`, 'good');
+      const p = this.world.player.pos;
+      fx.burst(p.x, 0.2, p.z, { count: 40, color: 0xffd23f, color2: 0xfff2b0, speed: [0.5, 2.5], up: [2, 5], gravity: -0.15, life: [0.8, 1.3], spread: 0.6 });
+      sfx.levelUp();
+    });
+    events.on('heal', (e) => {
+      nums.spawn(e.x, 2, e.z, `+${e.amount}`, 'heal');
+      fx.burst(e.x, 0.4, e.z, { count: 16, color: 0x6fe07a, color2: 0xc8ffd0, speed: [0.3, 1.2], up: [1, 2.5], gravity: -0.2, life: [0.6, 1] });
+      sfx.drink();
+    });
+    events.on('hit', (e) => {
+      if (e.target === 'player') {
+        rig.shake(0.35);
+        hud.hurt();
+        nums.spawn(e.x, 2, e.z, String(e.amount), 'hurt');
+        fx.burst(e.x, 1, e.z, { count: 8, color: 0xc0262b, speed: [1, 3] });
+      } else {
+        if (e.crit) rig.shake(0.15, 0.12);
+        nums.spawn(e.x, 1.9, e.z, e.crit ? `${e.amount}!` : String(e.amount), e.crit ? 'crit' : 'hit');
+        fx.burst(e.x, 0.9, e.z, { count: e.crit ? 14 : 7, color: 0x9b1d1d, color2: e.crit ? 0xffd23f : 0xd8463c, speed: [1.5, 4] });
+      }
+      sfx.hit(e.target, e.crit);
+    });
+    events.on('swing', () => sfx.swing());
+    events.on('shoot', (e) => {
+      if (e.owner === 'player') this.shotsFired++;
+      sfx.shoot(e.owner);
+    });
+    events.on('enemyDied', (e) => {
+      const [a, b] = GIBS[e.kind] ?? [0x888888, 0x555555];
+      const boss = e.kind === 'boss';
+      fx.burst(e.x, 0.8, e.z, { count: boss ? 90 : 26, color: a, color2: b, speed: [1, boss ? 7 : 4.5], up: [2, 7], size: [0.1, boss ? 0.32 : 0.2], life: [0.7, 1.4], spread: boss ? 0.8 : 0.3 });
+      sfx.enemyDied(boss);
+    });
+    events.on('slam', (e) => {
+      rig.shake(e.radius > 2 ? 0.6 : 0.35, 0.35);
+      fx.ring(e.x, e.z, e.radius, 0x8a7f6a, 36);
+      fx.burst(e.x, 0.1, e.z, { count: 16, color: 0xb8ad94, speed: [0.5, 2], up: [3, 6] });
+      sfx.slam();
+    });
+    events.on('explosion', (e) => {
+      rig.shake(0.7, 0.4);
+      fx.burst(e.x, 0.6, e.z, { count: 60, color: 0xff8a3c, color2: 0xffd23f, speed: [2, e.radius * 3], up: [2, 8], life: [0.3, 0.7] });
+      fx.burst(e.x, 0.6, e.z, { count: 24, color: 0x3a3438, color2: 0x5a5458, speed: [0.5, 2], up: [1, 3], gravity: -0.1, life: [0.8, 1.4], size: [0.2, 0.35] });
+      fx.ring(e.x, e.z, e.radius, 0xff6a2c, 30);
+      sfx.explosion();
+    });
+    events.on('dodge', (e) => {
+      fx.burst(e.x, 0.1, e.z, { count: 10, color: 0x8a7f6a, speed: [0.5, 1.5], up: [0.5, 1.5], life: [0.3, 0.5] });
+      sfx.dodge();
+    });
+    events.on('chestOpened', (e) => {
+      fx.burst(e.x, 0.7, e.z, { count: 30, color: 0xf2c14e, color2: 0xfff2b0, speed: [0.5, 2.5], up: [3, 7] });
+      sfx.chest();
+    });
+    events.on('playerDied', () => {
+      hud.showDeath(true);
+      sfx.playerDied();
+    });
+    events.on('bossEngaged', (e) => {
+      hud.toast(`${e.name} awakens!`, 'danger');
+      sfx.bossEngaged();
+    });
+    events.on('bossDefeated', () => {
+      hud.toast(this.depth + 1 < FLOORS ? 'The portal is open!' : 'The way out is open!', 'good');
+      rig.shake(0.8, 0.6);
+      sfx.bossDefeated();
+    });
   }
 
   start(): void {
@@ -113,6 +212,10 @@ export class Game {
     this.depth = depth;
     const level = generateDungeon(this.seed, depth);
     this.world.load(level);
+    this.minimap.load(this.world);
+    this.particles.clear();
+    this.damageNumbers.clear();
+    this.stepper.reset();
     this.hud.showDeath(false);
     this.inventory.setOpen(false, this.world.player);
     this.hud.setFloor(depth + 1, FLOORS, this.seed);
@@ -120,60 +223,118 @@ export class Game {
     this.rig.snapTo(this.focus.set(level.playerStart.x, 0, level.playerStart.z));
   }
 
+  private get paused(): boolean {
+    return this.inventory.open || this.hud.controlsOpen;
+  }
+
   private frame = (time: number): void => {
-    const dt = this.lastTime < 0 ? 0 : Math.min((time - this.lastTime) / 1000, MAX_DT);
+    const dt = this.lastTime < 0 ? 0 : Math.min((time - this.lastTime) / 1000, MAX_FRAME);
     this.lastTime = time;
-    this.update(dt);
+    this.handleUiKeys();
+
+    if (this.paused) {
+      // Frozen: drop queued actions and don't bank time for a catch-up burst on resume.
+      this.stepper.reset();
+      this.pending.dodge = this.pending.slam = this.pending.volley = this.pending.potion = false;
+    } else {
+      this.latchActions();
+      const steps = this.stepper.advance(dt);
+      for (let i = 0; i < steps; i++) this.step(this.stepper.step);
+      // Presentation runs at display rate.
+      const { player } = this.world;
+      this.focus.set(player.pos.x, 0, player.pos.z);
+      this.rig.update(this.focus, dt);
+      cutoutUniforms.uCutTarget.value.set(player.pos.x, 0.9, player.pos.z);
+      this.particles.update(dt);
+      this.minimap.update(dt, this.world);
+    }
+    this.damageNumbers.update(this.paused ? 0 : dt, this.rig.camera, window.innerWidth, window.innerHeight);
+    this.hud.update(this.world.player);
+    this.hud.updateBoss(this.world.boss);
+    this.hud.setRunInfo(this.runTime, this.world.kills);
+
     this.renderer.render(this.scene, this.rig.camera);
     this.fps.tick(time, this.renderer.info.render.calls);
+    this.adaptResolution(dt);
     this.input.endFrame();
   };
 
-  private update(dt: number): void {
-    const { input, rig, world } = this;
-    if (input.wasPressed('F3')) this.fps.toggle();
-    if (input.wasPressed('KeyR') && !world.player.alive) this.restart();
-    if ((input.wasPressed('Tab') || input.wasPressed('KeyI')) && world.player.alive && !this.finished)
-      this.inventory.toggle(world.player);
-    if (input.wasPressed('Escape') && this.inventory.open) this.inventory.setOpen(false, world.player);
-    if (this.inventory.open) {
-      // Paused: keep the camera still and the HUD current.
-      this.hud.update(world.player);
-      return;
-    }
-    this.simTime += dt;
-    if (import.meta.env.DEV && input.wasPressed('BracketRight')) this.loadFloor((this.depth + 1) % FLOORS);
+  /**
+   * On high-DPI screens fill rate dominates. If the frame rate stays low for a
+   * few seconds, render at a lower pixel ratio (never below 1).
+   */
+  private adaptResolution(dt: number): void {
+    const ratio = this.renderer.getPixelRatio();
+    if (ratio <= 1 || this.fps.fps === 0) return;
+    this.slowTime = this.fps.fps < 45 ? this.slowTime + dt : 0;
+    if (this.slowTime < 3) return;
+    this.slowTime = 0;
+    this.renderer.setPixelRatio(Math.max(1, ratio - 0.5));
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
 
+  /** Menu and toggle keys: handled once per rendered frame, paused or not. */
+  private handleUiKeys(): void {
+    const { input, world } = this;
+    if (input.wasPressed('F3')) this.fps.toggle();
+    if (input.wasPressed('KeyM')) this.hud.setMuted(this.sfx.toggleMute());
+    if (input.wasPressed('KeyR') && !world.player.alive) this.restart();
+    if (input.wasPressed('KeyH') && !this.inventory.open) this.hud.toggleControls();
+    if ((input.wasPressed('Tab') || input.wasPressed('KeyI')) && world.player.alive && !this.finished && !this.hud.controlsOpen)
+      this.inventory.toggle(world.player);
+    if (input.wasPressed('Escape')) {
+      if (this.inventory.open) this.inventory.setOpen(false, world.player);
+      this.hud.toggleControls(false);
+    }
+    if (import.meta.env.DEV && input.wasPressed('BracketRight') && !this.paused) this.loadFloor((this.depth + 1) % FLOORS);
+  }
+
+  /**
+   * Remember edge-triggered presses until a simulation tick consumes them. On
+   * high-refresh displays some frames run no tick, and a press must not be lost.
+   */
+  private latchActions(): void {
+    const { input, pending } = this;
+    pending.dodge ||= input.wasPressed('Space');
+    pending.slam ||= input.wasPressed('KeyQ');
+    pending.volley ||= input.wasPressed('KeyE');
+    pending.potion ||= input.wasPressed('Digit1');
+  }
+
+  /** One fixed simulation tick. */
+  private step(dt: number): void {
+    const { input, rig, world, pending } = this;
+    this.simTime += dt;
     const f = rig.forward;
     const r = rig.right;
     const fwd = (input.isDown('KeyW') ? 1 : 0) - (input.isDown('KeyS') ? 1 : 0);
     const side = (input.isDown('KeyD') ? 1 : 0) - (input.isDown('KeyA') ? 1 : 0);
     rig.mouseToGround(input.mouseNdc.x, input.mouseNdc.y, 0.8, this.aim);
+    const live = !this.finished;
 
     world.update(
       dt,
       {
-        moveX: this.finished ? 0 : f.x * fwd + r.x * side,
-        moveZ: this.finished ? 0 : f.z * fwd + r.z * side,
+        moveX: live ? f.x * fwd + r.x * side : 0,
+        moveZ: live ? f.z * fwd + r.z * side : 0,
         aimX: this.aim.x,
         aimZ: this.aim.z,
-        attack: input.mouseDown && !this.finished,
-        dodge: input.wasPressed('Space') && !this.finished,
-        slam: input.wasPressed('KeyQ') && !this.finished,
-        volley: input.wasPressed('KeyE') && !this.finished,
-        potion: input.wasPressed('Digit1') && !this.finished,
+        attack: input.mouseDown && live,
+        dodge: pending.dodge && live,
+        slam: pending.slam && live,
+        volley: pending.volley && live,
+        potion: pending.potion && live,
       },
       rig.camera,
     );
+    // Each press is used by exactly one tick.
+    pending.dodge = pending.slam = pending.volley = pending.potion = false;
 
-    if (world.player.alive && !this.finished) this.runTime += dt;
-    if (world.portalReached && !this.finished) this.advanceFloor();
-
-    this.focus.set(world.player.pos.x, 0, world.player.pos.z);
-    rig.update(this.focus, dt);
-    cutoutUniforms.uCutTarget.value.set(world.player.pos.x, 0.9, world.player.pos.z);
-    this.hud.update(world.player);
-    this.hud.updateBoss(world.boss);
+    if (world.player.alive && live) this.runTime += dt;
+    if (world.portalReached && live) {
+      this.sfx.portal();
+      this.advanceFloor();
+    }
   }
 
   private advanceFloor(): void {
@@ -269,6 +430,16 @@ export class Game {
 
   get worldState(): GameWorld {
     return this.world;
+  }
+
+  debugFx(): { particles: number; damageNumbers: number; explored: number; audio: string; muted: boolean } {
+    return {
+      particles: this.particles.count,
+      damageNumbers: this.damageNumbers.activeCount,
+      explored: this.minimap.seenCount,
+      audio: this.sfx.state,
+      muted: this.sfx.isMuted,
+    };
   }
 
   debugKillBoss(): void {

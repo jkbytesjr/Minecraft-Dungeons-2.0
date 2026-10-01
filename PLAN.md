@@ -26,6 +26,6 @@ Main ideas:
 - **M3:** Seeded procedural dungeon (rooms and corridors), spawn points, start room and boss room. Generator tests.
 - **M4:** Archer (kites and shoots), exploder (rushes and detonates), mini-boss with phases, exit portal and win/lose flow.
 - **M5:** Loot tables, rarity tiers, stat modifiers, chests, sword/spear/bow, potions, inventory, XP and leveling, Q/E abilities. Loot and damage tests.
-- **M6:** Full HUD and minimap, particles, damage numbers, screen shake, Web Audio SFX, performance pass, README.
+- **M6 (done):** Full HUD and minimap, particles, damage numbers, screen shake, Web Audio SFX, performance pass, README.
 
 Before every commit: `npm run lint && npm run typecheck && npm test`.

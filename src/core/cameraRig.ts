@@ -7,7 +7,11 @@ export class CameraRig {
   private readonly offset = new THREE.Vector3(7.5, 12.5, 7.5);
   private readonly focus = new THREE.Vector3();
   private shakeTime = 0;
+  private shakeDuration = 0.25;
   private shakeStrength = 0;
+  /** Camera-relative ground axes for WASD movement (unit vectors on XZ). Fixed, since the camera never rotates. */
+  readonly forward = new THREE.Vector3(-this.offset.x, 0, -this.offset.z).normalize();
+  readonly right = new THREE.Vector3(-this.forward.z, 0, this.forward.x);
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
@@ -30,23 +34,16 @@ export class CameraRig {
   }
 
   shake(strength: number, duration = 0.25): void {
-    this.shakeStrength = Math.max(this.shakeStrength * (this.shakeTime > 0 ? 1 : 0), strength);
-    this.shakeTime = Math.max(this.shakeTime, duration);
+    // Keep whichever shake is currently stronger rather than stacking them.
+    const current = this.shakeTime > 0 ? this.shakeStrength * (this.shakeTime / this.shakeDuration) : 0;
+    if (strength < current) return;
+    this.shakeStrength = strength;
+    this.shakeTime = this.shakeDuration = duration;
   }
 
   setAspect(aspect: number): void {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
-  }
-
-  /** Camera-relative ground axes for WASD movement (unit vectors on XZ). */
-  get forward(): THREE.Vector3 {
-    return new THREE.Vector3(-this.offset.x, 0, -this.offset.z).normalize();
-  }
-
-  get right(): THREE.Vector3 {
-    const f = this.forward;
-    return new THREE.Vector3(-f.z, 0, f.x);
   }
 
   /** Project mouse NDC onto the ground plane at height y. */
@@ -60,7 +57,8 @@ export class CameraRig {
   private apply(): void {
     this.camera.position.copy(this.focus).add(this.offset);
     if (this.shakeTime > 0) {
-      const s = this.shakeStrength * (this.shakeTime / 0.25);
+      const f = this.shakeTime / this.shakeDuration;
+      const s = this.shakeStrength * f * f;
       this.camera.position.x += (Math.random() - 0.5) * s;
       this.camera.position.y += (Math.random() - 0.5) * s;
       this.camera.position.z += (Math.random() - 0.5) * s;

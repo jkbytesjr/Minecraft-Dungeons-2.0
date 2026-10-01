@@ -165,13 +165,21 @@ try {
   await waitSim(0.2);
   const chests = await page.evaluate(() => window.__game.worldState.chests.map((c) => ({ x: c.x, z: c.z })));
   check(chests.length > 0, `level has chests (${chests.length})`);
-  const bag0 = (await state()).player.bag;
+  const chestStart = await state();
+  const bag0 = chestStart.player.bag;
   await page.evaluate(({ x, z }) => window.__game.debugTeleport(x, z), chests[0]);
-  await waitSim(0.25);
+  // Loot becomes collectible after a short delay; grab the drop positions and
+  // step back before the player (standing on the chest) auto-collects them.
+  await page.waitForFunction(() => window.__game.worldState.pickups.length > 0, null, { polling: 'raf', timeout: 10000 }).catch(() => {});
+  const drops = await page.evaluate(({ x, z }) => {
+    const g = window.__game;
+    const d = g.worldState.pickups.map((p) => ({ ...p.pos }));
+    g.debugTeleport(x, z);
+    return d;
+  }, chestStart.player);
   check(await page.evaluate(() => window.__game.worldState.chests[0].opened), 'walking up to a chest opens it');
   await page.screenshot({ path: `${outDir}/11-chest.png` });
-  const drops = await page.evaluate(() => window.__game.worldState.pickups.map((p) => ({ ...p.pos })));
-  await waitSim(0.4);
+  await waitSim(0.5);
   check(drops.length > 0, `chest spills loot (${drops.length})`);
   for (const d of drops) {
     await page.evaluate(({ x, z }) => window.__game.debugTeleport(x, z), d);
@@ -220,6 +228,8 @@ try {
   await waitSim(0.6);
   await page.mouse.up();
   check((await extra()).shots > shots0, 'bow attack fires an arrow');
+  // Let any bow draw already in progress release before counting the volley.
+  await waitSim(0.8);
   const shots1 = (await extra()).shots;
   await page.keyboard.press('KeyE');
   await waitSim(0.05);
@@ -244,6 +254,51 @@ try {
   await waitSim(0.1);
   const healed = await state();
   check(healed.player.hp > 20 && healed.player.potions === 1, `1 drinks a potion (hp ${healed.player.hp})`);
+
+  // --- M6: particles, damage numbers, minimap, audio, HUD ---
+  const fx = () => page.evaluate(() => window.__game.debugFx());
+  await page.evaluate(() => window.__game.restart());
+  await waitSim(0.3);
+  check((await fx()).explored > 20, `minimap reveals the start room (${(await fx()).explored} tiles)`);
+  check(await page.evaluate(() => {
+    const c = document.querySelector('.minimap canvas');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
+    return false;
+  }), 'minimap canvas has drawn pixels');
+  check((await fx()).audio === 'running', `audio unlocks after input (${(await fx()).audio})`);
+  await page.evaluate(() => window.__game.debugSpawn('grunt', 1.4, 0));
+  await waitSim(0.1);
+  await page.mouse.move(900, 300);
+  await page.mouse.down();
+  await waitSim(0.5);
+  const fxHit = await fx();
+  await page.mouse.up();
+  check(fxHit.particles > 0, `hits spawn particles (${fxHit.particles})`);
+  check(fxHit.damageNumbers > 0 && (await page.locator('.dmg:not(.hidden)').count()) > 0, `hits show damage numbers (${fxHit.damageNumbers})`);
+  await page.screenshot({ path: `${outDir}/14-effects.png` });
+  await page.evaluate(() => (window.__game.worldState.player.hp = 10));
+  await page.evaluate(() => window.__game.worldState.player.applyDamage(1, 0, 0));
+  await page.waitForTimeout(150);
+  check(await page.locator('.vignette.low').count() === 1, 'low HP shows the warning vignette');
+  const muted0 = (await fx()).muted;
+  await page.keyboard.press('KeyM');
+  await page.waitForTimeout(100);
+  check((await fx()).muted !== muted0 && (await page.textContent('.sound-hint')).includes(muted0 ? 'on' : 'off'), 'M toggles sound');
+  await page.keyboard.press('KeyM');
+  await page.keyboard.press('KeyH');
+  await page.waitForTimeout(100);
+  const simH = await page.evaluate(() => window.__game.simTime);
+  await page.waitForTimeout(300);
+  check(await page.isVisible('.controls-panel') && (await page.evaluate(() => window.__game.simTime)) === simH, 'H shows controls and pauses');
+  await page.screenshot({ path: `${outDir}/15-controls.png` });
+  await page.keyboard.press('KeyH');
+  await page.waitForTimeout(100);
+  check(!(await page.isVisible('.controls-panel')), 'H hides controls');
+  const t0 = await page.evaluate(() => window.__game.simTime);
+  await page.waitForTimeout(1000);
+  const simRate = (await page.evaluate(() => window.__game.simTime)) - t0;
+  check(simRate > 0.2, `fixed-step simulation keeps running (${simRate.toFixed(2)} sim s per real s)`);
 
   // --- M3: floors render with their own theme ---
   for (const depth of [1, 2]) {

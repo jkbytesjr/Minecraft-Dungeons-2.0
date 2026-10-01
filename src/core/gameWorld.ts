@@ -106,6 +106,7 @@ export class GameWorld {
     if (player.strikeReady) this.resolvePlayerStrike();
     if (player.slamReady) this.resolveSlam();
     if (player.volleyReady) this.resolveVolley();
+    if (player.potionHealed > 0) this.events.emit('heal', { ...player.pos, amount: player.potionHealed });
     if (!player.alive && !this.deathAnnounced) {
       this.deathAnnounced = true;
       this.events.emit('playerDied', {});

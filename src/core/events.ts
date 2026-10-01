@@ -14,6 +14,7 @@ export interface GameEvents {
   levelUp: { level: number };
   itemPicked: { item: Item };
   potionPicked: Record<string, never>;
+  heal: { x: number; z: number; amount: number };
   bagFull: Record<string, never>;
   chestOpened: { x: number; z: number };
   playerDied: Record<string, never>;
