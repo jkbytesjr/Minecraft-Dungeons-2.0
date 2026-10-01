@@ -13,6 +13,8 @@ export abstract class Actor {
   hp: number;
   maxHp: number;
   armor = 0;
+  /** Multiplier on incoming knockback (bosses are heavy). */
+  knockbackTaken = 1;
   alive = true;
   abstract readonly radius: number;
   private flashTimer = 0;
@@ -38,8 +40,8 @@ export abstract class Actor {
   applyDamage(amount: number, knockX: number, knockZ: number): boolean {
     if (!this.alive || this.invulnerable) return false;
     this.hp = Math.max(0, this.hp - amount);
-    this.knock.x += knockX;
-    this.knock.z += knockZ;
+    this.knock.x += knockX * this.knockbackTaken;
+    this.knock.z += knockZ * this.knockbackTaken;
     this.flashTimer = FLASH_TIME;
     setFlash(this.object, true);
     if (this.hp <= 0) {

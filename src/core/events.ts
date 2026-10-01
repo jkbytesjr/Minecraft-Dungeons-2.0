@@ -1,8 +1,13 @@
 /** Minimal typed event bus so audio, particles and HUD can react without coupling. */
 export interface GameEvents {
   swing: { x: number; z: number };
+  shoot: { x: number; z: number; owner: 'player' | 'enemy' };
   hit: { x: number; z: number; amount: number; crit: boolean; target: 'enemy' | 'player' };
-  enemyDied: { x: number; z: number; kind: string };
+  enemyDied: { x: number; z: number; kind: string; xp: number };
+  explosion: { x: number; z: number; radius: number };
+  bossEngaged: { name: string };
+  bossDefeated: { x: number; z: number };
+  slam: { x: number; z: number; radius: number };
   dodge: { x: number; z: number };
   playerDied: Record<string, never>;
 }

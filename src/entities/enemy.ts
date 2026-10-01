@@ -7,6 +7,9 @@ import type { TileGrid } from '../world/grid';
 import type { FlowField } from '../systems/flowField';
 import type { AttackStats } from '../systems/damage';
 import type { Rng } from '../core/rng';
+import type { ProjectileSpec } from '../systems/projectiles';
+import type { EnemyKind } from '../world/dungeonGen';
+import type { EventBus } from '../core/events';
 
 export interface EnemyContext {
   player: Player;
@@ -15,6 +18,11 @@ export interface EnemyContext {
   rng: Rng;
   /** Resolve an enemy attack against the player. */
   hitPlayer(source: Enemy, attack: AttackStats, knockback: number): void;
+  fireProjectile(spec: Omit<ProjectileSpec, 'owner'>): void;
+  /** Area damage to the player (and, at half strength, other enemies). */
+  explode(x: number, z: number, radius: number, base: number, source: Enemy): void;
+  spawnEnemy(kind: EnemyKind, x: number, z: number): void;
+  events: EventBus;
 }
 
 const DEATH_TIME = 0.7;
@@ -26,6 +34,11 @@ export abstract class Enemy extends Actor {
   protected readonly model: HumanoidParts;
   /** Multiplies outgoing damage; raised on deeper floors. */
   damageMult = 1;
+  /** False for kills that should not reward XP/loot (e.g. self-detonation). */
+  rewardsOnDeath = true;
+  /** Set by the world once death has been announced. */
+  deathReported = false;
+  readonly isBoss: boolean = false;
   protected walkPhase = 0;
   private deathTimer = 0;
 
@@ -75,6 +88,18 @@ export abstract class Enemy extends Actor {
 
   protected angleToPlayer(ctx: EnemyContext): number {
     return Math.atan2(ctx.player.pos.x - this.pos.x, ctx.player.pos.z - this.pos.z);
+  }
+
+  /** Is the player visible and within `range`? */
+  protected canSeePlayer(ctx: EnemyContext, range: number): boolean {
+    const p = ctx.player;
+    return p.alive && this.distanceToPlayer(ctx) < range && ctx.grid.lineOfSight(this.pos.x, this.pos.z, p.pos.x, p.pos.z);
+  }
+
+  /** Sidestep perpendicular to the player (kiting). */
+  protected strafe(ctx: EnemyContext, dt: number, speed: number, dir: number): void {
+    const a = this.angleToPlayer(ctx) + (Math.PI / 2) * dir;
+    ctx.grid.moveBox(this.pos, Math.sin(a) * speed * dt, Math.cos(a) * speed * dt, this.radius);
   }
 
   /**
