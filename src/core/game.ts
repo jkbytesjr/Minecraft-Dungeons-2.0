@@ -7,6 +7,9 @@ import { generateDungeon, type EnemyKind } from '../world/dungeonGen';
 import { cutoutUniforms } from '../world/wallCutout';
 import { FpsMeter } from '../ui/fpsMeter';
 import { Hud } from '../ui/hud';
+import { InventoryPanel } from '../ui/inventoryPanel';
+import { RARITY_COLOR, rollItem } from '../systems/loot';
+import { Rng } from './rng';
 import { createEnemy } from '../entities/enemyFactory';
 
 const MAX_DT = 1 / 30;
@@ -27,6 +30,7 @@ export class Game {
   private readonly events = new EventBus();
   private readonly world: GameWorld;
   private readonly hud: Hud;
+  private readonly inventory: InventoryPanel;
   private readonly fps = new FpsMeter();
   private lastTime = -1;
   private readonly aim = new THREE.Vector3();
@@ -37,6 +41,8 @@ export class Game {
   private runTime = 0;
   /** Total simulated seconds (used by automated tests to wait on game time). */
   simTime = 0;
+  /** Player shots fired (smoke-test counter). */
+  private shotsFired = 0;
   private finished = false;
 
   constructor(container: HTMLElement) {
@@ -58,9 +64,17 @@ export class Game {
     this.world = new GameWorld(this.scene, this.events);
     this.hud = new Hud(document.getElementById('hud')!, () => this.restart());
     this.hud.onNewRun = () => this.startRun(Math.floor(Math.random() * 1e9));
+    this.inventory = new InventoryPanel(document.getElementById('hud')!, () => {});
+    this.events.on('itemPicked', ({ item }) => this.hud.toast(`Picked up ${item.name}`, 'loot', RARITY_COLOR[item.rarity]));
+    this.events.on('potionPicked', () => this.hud.toast('+1 Health potion', 'good'));
+    this.events.on('bagFull', () => this.hud.toast('Bag is full: salvage something (Tab)', 'danger'));
+    this.events.on('levelUp', ({ level }) => this.hud.toast(`Level up! You are now level ${level}`, 'good'));
     this.events.on('hit', (e) => {
       if (e.target === 'player') this.rig.shake(0.35);
       else if (e.crit) this.rig.shake(0.15, 0.12);
+    });
+    this.events.on('shoot', (e) => {
+      if (e.owner === 'player') this.shotsFired++;
     });
     this.events.on('slam', (e) => this.rig.shake(e.radius > 2 ? 0.6 : 0.35, 0.35));
     this.events.on('explosion', () => this.rig.shake(0.7, 0.4));
@@ -82,6 +96,7 @@ export class Game {
   /** Begin a fresh run from floor 1. */
   startRun(seed: number): void {
     this.seed = seed;
+    this.world.player.resetProgress();
     this.runTime = 0;
     this.finished = false;
     this.world.kills = 0;
@@ -99,6 +114,7 @@ export class Game {
     const level = generateDungeon(this.seed, depth);
     this.world.load(level);
     this.hud.showDeath(false);
+    this.inventory.setOpen(false, this.world.player);
     this.hud.setFloor(depth + 1, FLOORS, this.seed);
     this.hud.toast(`Floor ${depth + 1}`, 'info');
     this.rig.snapTo(this.focus.set(level.playerStart.x, 0, level.playerStart.z));
@@ -115,9 +131,17 @@ export class Game {
 
   private update(dt: number): void {
     const { input, rig, world } = this;
-    this.simTime += dt;
     if (input.wasPressed('F3')) this.fps.toggle();
     if (input.wasPressed('KeyR') && !world.player.alive) this.restart();
+    if ((input.wasPressed('Tab') || input.wasPressed('KeyI')) && world.player.alive && !this.finished)
+      this.inventory.toggle(world.player);
+    if (input.wasPressed('Escape') && this.inventory.open) this.inventory.setOpen(false, world.player);
+    if (this.inventory.open) {
+      // Paused: keep the camera still and the HUD current.
+      this.hud.update(world.player);
+      return;
+    }
+    this.simTime += dt;
     if (import.meta.env.DEV && input.wasPressed('BracketRight')) this.loadFloor((this.depth + 1) % FLOORS);
 
     const f = rig.forward;
@@ -135,6 +159,9 @@ export class Game {
         aimZ: this.aim.z,
         attack: input.mouseDown && !this.finished,
         dodge: input.wasPressed('Space') && !this.finished,
+        slam: input.wasPressed('KeyQ') && !this.finished,
+        volley: input.wasPressed('KeyE') && !this.finished,
+        potion: input.wasPressed('Digit1') && !this.finished,
       },
       rig.camera,
     );
@@ -166,12 +193,37 @@ export class Game {
   // ---- Dev-only hooks for the automated smoke test ----
 
   debugState(): {
-    player: { x: number; z: number; facing: number; hp: number; alive: boolean; dodging: boolean };
+    player: {
+      x: number;
+      z: number;
+      facing: number;
+      hp: number;
+      maxHp: number;
+      alive: boolean;
+      dodging: boolean;
+      level: number;
+      xp: number;
+      potions: number;
+      bag: number;
+      weapon: string;
+    };
     enemies: { kind: string; x: number; z: number; hp: number; alive: boolean }[];
   } {
     const p = this.world.player;
     return {
-      player: { ...p.pos, facing: p.facing, hp: p.hp, alive: p.alive, dodging: p.dodging },
+      player: {
+        ...p.pos,
+        facing: p.facing,
+        hp: p.hp,
+        maxHp: p.maxHp,
+        alive: p.alive,
+        dodging: p.dodging,
+        level: p.progress.level,
+        xp: p.progress.xp,
+        potions: p.inventory.potions,
+        bag: p.inventory.bag.length,
+        weapon: p.inventory.weapon.weapon,
+      },
       enemies: this.world.enemies.map((e) => ({ kind: e.kind, ...e.pos, hp: e.hp, alive: e.alive })),
     };
   }
@@ -187,7 +239,11 @@ export class Game {
 
   /** Remove non-boss enemies and spawn one enemy at an offset from the player. */
   debugSpawn(kind: EnemyKind, dx: number, dz: number): void {
-    for (const e of this.world.enemies) if (!e.isBoss) e.applyDamage(99999, 0, 0);
+    for (const e of this.world.enemies) {
+      if (e.isBoss || !e.alive) continue;
+      e.rewardsOnDeath = false;
+      e.applyDamage(99999, 0, 0);
+    }
     const p = this.world.player.pos;
     const grid = this.world.level.grid;
     // Keep the distance but rotate until the spot is on open floor in sight of the player.
@@ -205,13 +261,24 @@ export class Game {
     this.world.spawn(createEnemy(kind, this.depth), p.x + dx, p.z + dz);
   }
 
+  /** Give the player an item (smoke-test helper). */
+  debugGive(kind: 'weapon' | 'armor', rarity: 'common' | 'rare' | 'unique'): void {
+    const rng = new Rng(Math.floor(Math.random() * 1e9));
+    this.world.player.inventory.add(rollItem(rng, this.depth, { kind, minRarity: rarity === 'common' ? 'common' : rarity, uniqueBoost: rarity === 'unique' ? 1e6 : 0 }));
+  }
+
+  get worldState(): GameWorld {
+    return this.world;
+  }
+
   debugKillBoss(): void {
     this.world.boss?.applyDamage(999999, 0, 0);
   }
 
-  debugExtra(): { projectiles: number; portalActive: boolean; bossEngaged: boolean; depth: number } {
+  debugExtra(): { projectiles: number; shots: number; portalActive: boolean; bossEngaged: boolean; depth: number } {
     return {
       projectiles: this.world.projectiles.mesh.count,
+      shots: this.shotsFired,
       portalActive: this.world.portal.active,
       bossEngaged: !!this.world.boss?.engaged,
       depth: this.depth,

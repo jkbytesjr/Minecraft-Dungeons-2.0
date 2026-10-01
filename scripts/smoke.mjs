@@ -85,6 +85,7 @@ try {
   const g3 = await target();
   check(!g3 || g3.hp < hp0, 'attacks damage the grunt');
   check(!g3, 'grunt can be killed');
+  check((await state()).player.xp > 0, 'kills grant XP');
 
   // Dodge: player moves quickly and is flagged as dodging (i-frames).
   const d0 = await state();
@@ -100,7 +101,7 @@ try {
   await page.evaluate(() => window.__game.debugSpawn('grunt', 1.0, 0));
   await waitSim(2.5);
   const h = await state();
-  check(h.player.hp < 100, `grunt damages the player (hp ${h.player.hp})`);
+  check(h.player.hp < h.player.maxHp, `grunt damages the player (hp ${h.player.hp}/${h.player.maxHp})`);
   await page.screenshot({ path: `${outDir}/04-hurt.png` });
 
   // Death screen + restart.
@@ -133,7 +134,7 @@ try {
   await page.screenshot({ path: `${outDir}/08-exploder-fuse.png` });
   await waitSim(2);
   const ex = await state();
-  check(ex.player.hp < 100 && !ex.enemies.some((e) => e.kind === 'exploder' && e.alive), `exploder detonates (hp ${ex.player.hp})`);
+  check(ex.player.hp < ex.player.maxHp && !ex.enemies.some((e) => e.kind === 'exploder' && e.alive), `exploder detonates (hp ${ex.player.hp})`);
 
   // Boss: walk into its arena, let it engage, then kill it and use the portal.
   for (let depth = 0; depth < 3; depth++) {
@@ -158,6 +159,91 @@ try {
   await page.click('.new-run');
   await page.waitForTimeout(200);
   check((await extra()).depth === 0 && !(await page.isVisible('.screen.victory')), 'new run starts at floor 1');
+
+  // --- M5: loot, chests, inventory, weapons, abilities, potions ---
+  await page.evaluate(() => window.__game.restart());
+  await waitSim(0.2);
+  const chests = await page.evaluate(() => window.__game.worldState.chests.map((c) => ({ x: c.x, z: c.z })));
+  check(chests.length > 0, `level has chests (${chests.length})`);
+  const bag0 = (await state()).player.bag;
+  await page.evaluate(({ x, z }) => window.__game.debugTeleport(x, z), chests[0]);
+  await waitSim(0.25);
+  check(await page.evaluate(() => window.__game.worldState.chests[0].opened), 'walking up to a chest opens it');
+  await page.screenshot({ path: `${outDir}/11-chest.png` });
+  const drops = await page.evaluate(() => window.__game.worldState.pickups.map((p) => ({ ...p.pos })));
+  await waitSim(0.4);
+  check(drops.length > 0, `chest spills loot (${drops.length})`);
+  for (const d of drops) {
+    await page.evaluate(({ x, z }) => window.__game.debugTeleport(x, z), d);
+    await waitSim(0.15);
+  }
+  const afterLoot = await state();
+  check(afterLoot.player.bag > bag0 || afterLoot.player.potions > 1, 'walking over loot picks it up');
+
+  // Inventory: equip a spear from the bag via the UI.
+  await page.evaluate(() => {
+    const inv = window.__game.worldState.player.inventory;
+    inv.bag.length = 0;
+  });
+  await page.evaluate(() => window.__game.debugGive('weapon', 'unique'));
+  await page.evaluate(() => window.__game.debugGive('armor', 'rare'));
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(150);
+  check(await page.isVisible('.inventory'), 'Tab opens the inventory');
+  const simBefore = await page.evaluate(() => window.__game.simTime);
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => window.__game.simTime)) === simBefore, 'game is paused while inventory is open');
+  await page.hover('[data-bag="0"]');
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: `${outDir}/12-inventory.png` });
+  const weaponBefore = (await state()).player.weapon;
+  const newKind = await page.evaluate(() => window.__game.worldState.player.inventory.bag[0].weapon);
+  await page.click('[data-bag="0"]');
+  check((await state()).player.weapon === newKind && newKind !== undefined, `clicking a bag weapon equips it (${weaponBefore} -> ${newKind})`);
+  const armorIdx = await page.evaluate(() => window.__game.worldState.player.inventory.bag.findIndex((i) => i.kind === 'armor'));
+  const hpMaxBefore = (await state()).player.maxHp;
+  await page.click(`[data-bag="${armorIdx}"]`);
+  check((await state()).player.maxHp > hpMaxBefore, 'equipping armor raises max HP');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(100);
+  check(!(await page.isVisible('.inventory')), 'Tab closes the inventory');
+
+  // Bow fires arrows; Q slam and E volley.
+  await page.evaluate(() => {
+    const p = window.__game.worldState.player;
+    p.inventory.weapon = { ...p.inventory.weapon, kind: 'weapon', weapon: 'bow', damage: 9, mods: [] };
+    p.refreshEquipment();
+  });
+  await page.mouse.move(900, 300);
+  const shots0 = (await extra()).shots;
+  await page.mouse.down();
+  await waitSim(0.6);
+  await page.mouse.up();
+  check((await extra()).shots > shots0, 'bow attack fires an arrow');
+  const shots1 = (await extra()).shots;
+  await page.keyboard.press('KeyE');
+  await waitSim(0.05);
+  check((await extra()).shots - shots1 === 7, 'E fires a 7-arrow volley');
+  await page.screenshot({ path: `${outDir}/13-volley.png` });
+  await page.evaluate(() => window.__game.debugSpawn('grunt', 1.5, 0));
+  await waitSim(0.1);
+  const slamHp = (await target()).hp;
+  await page.keyboard.press('KeyQ');
+  await waitSim(0.7);
+  const afterSlam = await target();
+  check(!afterSlam || afterSlam.hp < slamHp, 'Q ground slam damages nearby enemies');
+
+  // Potion heals.
+  await page.evaluate(() => window.__game.debugSpawn('archer', 30, 30));
+  await page.evaluate(() => {
+    const p = window.__game.worldState.player;
+    p.hp = 20;
+    p.inventory.potions = 2;
+  });
+  await page.keyboard.press('Digit1');
+  await waitSim(0.1);
+  const healed = await state();
+  check(healed.player.hp > 20 && healed.player.potions === 1, `1 drinks a potion (hp ${healed.player.hp})`);
 
   // --- M3: floors render with their own theme ---
   for (const depth of [1, 2]) {

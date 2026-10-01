@@ -1,3 +1,5 @@
+import type { Item } from '../systems/loot';
+
 /** Minimal typed event bus so audio, particles and HUD can react without coupling. */
 export interface GameEvents {
   swing: { x: number; z: number };
@@ -9,6 +11,11 @@ export interface GameEvents {
   bossDefeated: { x: number; z: number };
   slam: { x: number; z: number; radius: number };
   dodge: { x: number; z: number };
+  levelUp: { level: number };
+  itemPicked: { item: Item };
+  potionPicked: Record<string, never>;
+  bagFull: Record<string, never>;
+  chestOpened: { x: number; z: number };
   playerDied: Record<string, never>;
 }
 

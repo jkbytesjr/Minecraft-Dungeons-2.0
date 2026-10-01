@@ -11,17 +11,27 @@ import { FlowField } from '../systems/flowField';
 import { inArc } from '../systems/combat';
 import { falloffDamage, rollDamage, type AttackStats } from '../systems/damage';
 import { Projectiles, type ProjectileOwner, type ProjectileSpec, type ProjectileTarget } from '../systems/projectiles';
+import { Pickup } from '../entities/pickup';
+import { Chest } from '../entities/chest';
+import { rollDrops, type Drop, type DropSource } from '../systems/loot';
 import { Rng } from './rng';
 import type { EventBus } from './events';
 
 /** Enemies further than this from the player are frozen and hidden. */
 const ACTIVE_RANGE = 30;
+const PICKUP_RANGE = 1.0;
+const CHEST_RANGE = 1.4;
+const SLAM_RADIUS = 3.2;
+const VOLLEY_ARROWS = 7;
+const VOLLEY_SPREAD = (50 * Math.PI) / 180;
 
 /** Owns everything in the simulation: level, player, enemies, and the rules between them. */
 export class GameWorld {
   readonly player = new Player();
   readonly enemies: Enemy[] = [];
   readonly projectiles = new Projectiles();
+  readonly pickups: Pickup[] = [];
+  readonly chests: Chest[] = [];
   level!: Dungeon;
   portal!: Portal;
   boss: Boss | null = null;
@@ -50,6 +60,9 @@ export class GameWorld {
     for (const e of this.enemies) this.removeEnemyObjects(e);
     this.enemies.length = 0;
     this.projectiles.clear();
+    for (const p of this.pickups) this.root.remove(p.group);
+    this.pickups.length = 0;
+    this.chests.length = 0;
     this.root.remove(this.levelGroup);
     this.level = level;
     this.rng = new Rng(level.seed * 31 + level.depth);
@@ -74,6 +87,11 @@ export class GameWorld {
       explode: (x, z, radius, base, source) => this.explode(x, z, radius, base, source),
       spawnEnemy: (kind, x, z) => this.spawn(createEnemy(kind, level.depth), x, z),
     };
+    for (const c of level.chests) {
+      const chest = new Chest(c.x, c.z, this.rng.pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]));
+      this.chests.push(chest);
+      this.levelGroup.add(chest.group);
+    }
     for (const s of level.spawns) {
       const e = this.spawn(createEnemy(s.kind, level.depth), s.x, s.z);
       if (e instanceof Boss) this.boss = e;
@@ -86,6 +104,8 @@ export class GameWorld {
     player.update(dt, input, level.grid);
     if (!wasDodging && player.dodging) this.events.emit('dodge', { ...player.pos });
     if (player.strikeReady) this.resolvePlayerStrike();
+    if (player.slamReady) this.resolveSlam();
+    if (player.volleyReady) this.resolveVolley();
     if (!player.alive && !this.deathAnnounced) {
       this.deathAnnounced = true;
       this.events.emit('playerDied', {});
@@ -114,6 +134,15 @@ export class GameWorld {
       }
     }
 
+    this.updatePickups(dt);
+    for (const c of this.chests) {
+      if (!c.opened && player.alive && Math.hypot(c.x - player.pos.x, c.z - player.pos.z) < CHEST_RANGE) {
+        c.open();
+        this.events.emit('chestOpened', { x: c.x, z: c.z });
+        this.dropLoot(rollDrops(this.rng, 'chest', level.depth), c.x, c.z);
+      }
+      c.update(dt);
+    }
     this.portal.update(dt);
     if (player.alive && this.portal.contains(player.pos.x, player.pos.z)) this.portalReached = true;
     this.torches.update(dt, this.focus.set(player.pos.x, 0, player.pos.z));
@@ -140,6 +169,7 @@ export class GameWorld {
     const len = Math.hypot(dx, dz) || 1;
     if (e.applyDamage(dmg.amount, (dx / len) * knockback, (dz / len) * knockback)) {
       this.events.emit('hit', { x: e.pos.x, z: e.pos.z, amount: dmg.amount, crit: dmg.crit, target: 'enemy' });
+      if (this.player.stats.lifeOnHit > 0) this.player.heal(this.player.stats.lifeOnHit);
     }
   }
 
@@ -148,6 +178,9 @@ export class GameWorld {
     if (e.rewardsOnDeath) {
       this.kills++;
       this.events.emit('enemyDied', { x: e.pos.x, z: e.pos.z, kind: e.kind, xp: e.xp });
+      const levels = this.player.gainXp(e.xp * (1 + 0.5 * this.level.depth));
+      if (levels > 0) this.events.emit('levelUp', { level: this.player.progress.level });
+      this.dropLoot(rollDrops(this.rng, e.kind as DropSource, this.level.depth), e.pos.x, e.pos.z);
     }
     if (e === this.boss) {
       this.portal.activate();
@@ -171,7 +204,7 @@ export class GameWorld {
 
   private onProjectileHit(p: ProjectileSpec, target: ProjectileTarget): boolean {
     if (p.owner === 'enemy') {
-      const dmg = rollDamage(p.attack, this.player.stats.armor, () => this.rng.next());
+      const dmg = rollDamage(p.attack, this.player.armor, () => this.rng.next());
       // Dodging through arrows is allowed: invulnerable players don't consume them.
       if (!this.player.applyDamage(dmg.amount, p.dirX * p.knockback, p.dirZ * p.knockback)) return false;
       this.events.emit('hit', { ...this.player.pos, amount: dmg.amount, crit: dmg.crit, target: 'player' });
@@ -181,9 +214,86 @@ export class GameWorld {
     return true;
   }
 
+  private dropLoot(drops: Drop[], x: number, z: number): void {
+    drops.forEach((d, i) => {
+      const p = new Pickup(d, x, z, (i / Math.max(1, drops.length)) * Math.PI * 2 + this.rng.range(0, 1));
+      this.pickups.push(p);
+      this.root.add(p.group);
+    });
+  }
+
+  private updatePickups(dt: number): void {
+    const { player, level } = this;
+    for (let i = this.pickups.length - 1; i >= 0; i--) {
+      const p = this.pickups[i];
+      p.update(dt, (x, z) => level.grid.isWalkableAt(x, z));
+      const d = Math.hypot(p.pos.x - player.pos.x, p.pos.z - player.pos.z);
+      if (d > 2) p.warned = false;
+      if (!player.alive || d > PICKUP_RANGE || !p.collectible) continue;
+      let taken = false;
+      if (p.drop.type === 'potion') {
+        taken = player.inventory.addPotion();
+        if (taken) this.events.emit('potionPicked', {});
+      } else if (player.inventory.add(p.drop.item)) {
+        taken = true;
+        this.events.emit('itemPicked', { item: p.drop.item });
+      } else if (!p.warned) {
+        p.warned = true;
+        this.events.emit('bagFull', {});
+      }
+      if (taken) {
+        this.root.remove(p.group);
+        this.pickups.splice(i, 1);
+      }
+    }
+  }
+
+  private resolveSlam(): void {
+    const { player } = this;
+    this.events.emit('slam', { x: player.pos.x, z: player.pos.z, radius: SLAM_RADIUS });
+    const attack = { ...player.attackStats, base: 14 + player.stats.weaponDamage };
+    for (const e of this.enemies) {
+      if (!e.alive || Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) > SLAM_RADIUS + e.radius) continue;
+      this.damageEnemy(e, attack, player.pos.x, player.pos.z, 10);
+    }
+  }
+
+  private resolveVolley(): void {
+    const { player } = this;
+    const attack = { ...player.attackStats, base: 4 + player.stats.weaponDamage * 0.6 };
+    for (let i = 0; i < VOLLEY_ARROWS; i++) {
+      const a = player.facing + (i / (VOLLEY_ARROWS - 1) - 0.5) * VOLLEY_SPREAD;
+      this.fireProjectile({
+        x: player.pos.x,
+        z: player.pos.z,
+        dirX: Math.sin(a),
+        dirZ: Math.cos(a),
+        speed: 18,
+        range: 14,
+        attack,
+        knockback: 3,
+        owner: 'player',
+      });
+    }
+  }
+
   private resolvePlayerStrike(): void {
     const { player } = this;
     const w = player.weapon;
+    if (w.kind === 'bow') {
+      this.fireProjectile({
+        x: player.pos.x + Math.sin(player.facing) * 0.4,
+        z: player.pos.z + Math.cos(player.facing) * 0.4,
+        dirX: Math.sin(player.facing),
+        dirZ: Math.cos(player.facing),
+        speed: 20,
+        range: w.range,
+        attack: player.attackStats,
+        knockback: w.knockback,
+        owner: 'player',
+      });
+      return;
+    }
     this.events.emit('swing', { ...player.pos });
     for (const e of this.enemies) {
       if (!e.alive) continue;
@@ -194,7 +304,7 @@ export class GameWorld {
 
   private hitPlayer(source: Enemy, attack: AttackStats, knockback: number): void {
     const { player } = this;
-    const dmg = rollDamage(attack, player.stats.armor, () => this.rng.next());
+    const dmg = rollDamage(attack, player.armor, () => this.rng.next());
     const dx = player.pos.x - source.pos.x;
     const dz = player.pos.z - source.pos.z;
     const len = Math.hypot(dx, dz) || 1;
@@ -209,7 +319,7 @@ export class GameWorld {
     const pd = Math.hypot(p.pos.x - x, p.pos.z - z);
     const playerDmg = falloffDamage(base, pd, radius + p.radius);
     if (playerDmg > 0) {
-      const amount = Math.max(1, Math.round(playerDmg * (100 / (100 + p.stats.armor))));
+      const amount = Math.max(1, Math.round(playerDmg * (100 / (100 + p.armor))));
       const len = pd || 1;
       if (p.applyDamage(amount, ((p.pos.x - x) / len) * 12, ((p.pos.z - z) / len) * 12))
         this.events.emit('hit', { ...p.pos, amount, crit: false, target: 'player' });

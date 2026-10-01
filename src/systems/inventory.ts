@@ -1,0 +1,94 @@
+/** Equipment + bag + derived stats. Pure logic, unit-tested. */
+import { STARTER_WEAPON, type ArmorItem, type Item, type StatKey, type WeaponItem } from './loot';
+import { levelBonuses } from './progression';
+
+export const BAG_SIZE = 16;
+export const MAX_POTIONS = 9;
+
+export interface DerivedStats {
+  maxHp: number;
+  /** Damage multiplier from level and gear. */
+  power: number;
+  critChance: number;
+  critMultiplier: number;
+  armor: number;
+  moveSpeed: number;
+  /** Attack cooldown is divided by this. */
+  attackSpeed: number;
+  lifeOnHit: number;
+  weaponDamage: number;
+}
+
+const BASE = { maxHp: 100, critChance: 0.08, critMultiplier: 1.75, moveSpeed: 5 };
+
+export class Inventory {
+  weapon: WeaponItem = STARTER_WEAPON;
+  armor: ArmorItem | null = null;
+  readonly bag: Item[] = [];
+  potions = 1;
+
+  get full(): boolean {
+    return this.bag.length >= BAG_SIZE;
+  }
+
+  /** Returns false if the bag is full. */
+  add(item: Item): boolean {
+    if (this.full) return false;
+    this.bag.push(item);
+    return true;
+  }
+
+  addPotion(): boolean {
+    if (this.potions >= MAX_POTIONS) return false;
+    this.potions++;
+    return true;
+  }
+
+  /** Equip the bag item at `index`, moving the currently equipped one into its place. */
+  equip(index: number): void {
+    const item = this.bag[index];
+    if (!item) return;
+    if (item.kind === 'weapon') {
+      this.bag[index] = this.weapon;
+      this.weapon = item;
+    } else if (this.armor) {
+      this.bag[index] = this.armor;
+      this.armor = item;
+    } else {
+      this.bag.splice(index, 1);
+      this.armor = item;
+    }
+  }
+
+  /** Destroy a bag item. */
+  salvage(index: number): void {
+    if (index >= 0 && index < this.bag.length) this.bag.splice(index, 1);
+  }
+
+  /** Item currently equipped in the same slot as `item`. */
+  equippedFor(item: Item): Item | null {
+    return item.kind === 'weapon' ? this.weapon : this.armor;
+  }
+}
+
+function sumMods(items: (Item | null)[], stat: StatKey): number {
+  let total = 0;
+  for (const item of items) if (item) for (const m of item.mods) if (m.stat === stat) total += m.value;
+  return total;
+}
+
+export function computeStats(level: number, inv: Pick<Inventory, 'weapon' | 'armor'>): DerivedStats {
+  const gear = [inv.weapon, inv.armor];
+  const lvl = levelBonuses(level);
+  return {
+    maxHp: BASE.maxHp + lvl.maxHp + (inv.armor?.maxHp ?? 0) + sumMods(gear, 'maxHp'),
+    power: 1 + lvl.power + sumMods(gear, 'damagePct'),
+    critChance: Math.min(0.75, BASE.critChance + sumMods(gear, 'critChance')),
+    critMultiplier: BASE.critMultiplier,
+    armor: (inv.armor?.armor ?? 0) + sumMods(gear, 'armor'),
+    moveSpeed: BASE.moveSpeed * (1 + sumMods(gear, 'moveSpeedPct')),
+    attackSpeed: 1 + sumMods(gear, 'attackSpeedPct'),
+    lifeOnHit: sumMods(gear, 'lifeOnHit'),
+    weaponDamage: inv.weapon.damage,
+  };
+}
