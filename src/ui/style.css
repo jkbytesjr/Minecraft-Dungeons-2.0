@@ -1,0 +1,39 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0d0b10;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  color: #eee;
+  user-select: none;
+}
+
+#app canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.fps-meter {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  background: rgb(0 0 0 / 0.55);
+  font: 12px/1.2 ui-monospace, monospace;
+  border-radius: 4px;
+}
+
+.hidden {
+  display: none !important;
+}
