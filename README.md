@@ -1,24 +1,54 @@
 # Voxel Dungeon
 
-A browser dungeon crawler built entirely from coloured cubes. Fight through six procedurally generated floors, loot gear, level up, and defeat each floor's boss to open the portal down.
+A dungeon crawler that runs in the browser, built entirely from coloured cubes. Fight through six procedurally generated floors, collect loot, choose how your character grows, and defeat a different boss on each floor.
 
-Everything is generated at runtime: dungeon layouts, voxel models, loot and sound effects. There are no image or audio assets.
+Nothing is pre-made: dungeon layouts, character models, loot and sound effects are all generated in code. The repo contains no image or audio assets.
 
-## Running it
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![three.js](https://img.shields.io/badge/three.js-000000?logo=threedotjs&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
 
-Requires Node.js 22.12 or newer.
+![Fighting a pack of grunts](docs/screenshots/combat.png)
+
+## Features
+
+- **Six procedurally generated floors**: rooms and corridors with their own colour theme on each floor. A seed always rebuilds the same dungeon.
+- **Four bosses** with telegraphed attacks and an enraged phase below half health.
+- **Real-time combat**: mouse-aimed melee and bow attacks, a dodge roll with brief invulnerability, a ground slam, an arrow volley and health potions.
+- **Loot** in three rarities (common, rare, unique) with random stat modifiers. Your equipped armor and weapon show on your character.
+- **Level-up choices**: each level pauses the game and offers three random attributes to pick from.
+- **Game feel**: particles, floating damage numbers, screen shake, a fog-of-war minimap, and sound effects synthesised in the browser.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![The Cinder King marks bomb spots around the player](docs/screenshots/boss-cinder-king.png) | ![Vesh the Thornhuntress telegraphs an arrow fan](docs/screenshots/boss-huntress.png) |
+| *The Cinder King marks where his bombs will land.* | *Vesh the Thornhuntress telegraphs an arrow fan.* |
+| ![Inventory with an item comparison tooltip](docs/screenshots/inventory.png) | ![Level-up screen offering three attributes](docs/screenshots/level-up.png) |
+| *Hover an item to compare it with your gear.* | *Pick one of three attributes on each level-up.* |
+
+## Getting started
+
+You need [Node.js](https://nodejs.org/) 22.12 or newer.
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173
+npm run dev
 ```
 
-Add `?seed=12345` to the URL to play a specific dungeon. The same seed always builds the same floors.
+Then open http://localhost:5173. Click in the game window or press any key to enable sound.
+
+To play a specific dungeon, add a seed to the URL, for example `http://localhost:5173/?seed=12345`. The same seed always produces the same floors, bosses and level-up offers.
+
+To make a production build:
 
 ```sh
 npm run build      # type-check and build to dist/
-npm run preview    # serve the production build
+npm run preview    # serve the build locally
 ```
+
+`dist/` is a static site, so you can host it anywhere that serves static files.
 
 ## Controls
 
@@ -31,26 +61,33 @@ npm run preview    # serve the production build
 | Q | Ground slam (area damage) |
 | E | Arrow volley (7-arrow spread) |
 | 1 | Drink a health potion |
+| 1 / 2 / 3 | Pick an attribute on the level-up screen |
 | Tab / I | Inventory (pauses the game) |
 | H | Controls overlay (pauses the game) |
 | M | Mute / unmute |
 | F3 | FPS and draw-call meter |
-| 1 / 2 / 3 | Pick an attribute on the level-up screen |
 | R | Restart after death |
 
 ## How a run works
 
-- **Floors.** Each floor is a set of rooms joined by corridors, with a boss arena. Killing the boss opens a portal to the next floor. Clear all six to win. Each floor has its own colour theme, and enemies get tougher the deeper you go.
-- **Enemies.** Grunts close in for melee, archers keep their distance and shoot, and exploders rush you and detonate.
-- **Bosses.** Four bosses, each with telegraphed attacks that get faster and nastier below half health:
-  - *The Ashen Colossus*: ground slams, charges, and summons adds.
-  - *Vesh the Thornhuntress*: keeps her distance, fires arrow fans and rapid shots, and dashes away if you close in.
-  - *The Cinder King*: drops bombs on marked spots around you and blasts a fire nova if you get close.
-  - *The Hollow Lich*: raises minions, fires bolt fans and rings, and teleports away when cornered.
+Each floor is a set of rooms joined by corridors, ending in a boss arena. Killing the boss opens a portal to the next floor, and clearing all six wins the run. Enemies get tougher the deeper you go.
 
-  Floor 1 is always the Colossus, and floors 2–4 bring the other three in an order set by the seed. Floors 5 and 6 are rematches against two different bosses.
-- **Loot.** Enemies and chests drop weapons (sword, spear, bow), armor and potions. Items come in three rarities (common, rare, unique) with more random stat modifiers at higher rarities. Hover a bag item in the inventory to compare it with what you have equipped. Your equipped weapon and armor are shown on your character and in the HUD.
-- **Leveling.** Kills give XP. Each level fully heals you and pauses the game so you can pick one of three random attributes, such as max HP, damage, crit chance, attack speed or faster ability cooldowns. Each attribute has a maximum rank. The inventory screen lists the ones you've picked.
+**Enemies.** Grunts close in for melee, archers keep their distance and shoot, and exploders rush you and detonate.
+
+**Bosses.** Every big attack is marked on the ground in red before it lands.
+
+| Boss | Fighting style |
+| --- | --- |
+| The Ashen Colossus | Ground slams, charges, and summons helpers when hurt. |
+| Vesh the Thornhuntress | Stays at range, fires arrow fans and rapid shots, and dashes away if you close in. |
+| The Cinder King | Drops bombs on marked spots around you and blasts a fire nova if you get close. |
+| The Hollow Lich | Raises minions, fires bolt fans and rings, and teleports away when cornered. |
+
+Floor 1 is always the Colossus, and floors 2–4 bring the other three in an order set by the seed. Floors 5 and 6 are rematches against two different bosses.
+
+**Loot.** Enemies and chests drop swords, spears, bows, armor and potions. Rarer items have more stat modifiers. Your equipped gear appears on your character (leather, chain or plate, with rarity-coloured trim) and in the HUD.
+
+**Leveling.** Kills give XP. Each level-up fully heals you and lets you choose one of three random attributes, such as max HP, damage, crit chance, attack speed or faster cooldowns. Each attribute has a maximum rank.
 
 ## Development
 
@@ -59,26 +96,29 @@ npm run lint && npm run typecheck && npm test   # run before every commit
 npm run smoke                                    # headless browser test
 ```
 
-- `npm test` runs the Vitest unit tests for the pure logic: dungeon generation and boss order, collision grid, damage formulas, loot rolls, inventory, leveling and attribute picks, pathfinding, the fixed-step clock and minimap exploration.
-- `npm run smoke` starts the dev server, drives the game in headless Chromium with Playwright, and checks movement, combat, every enemy type, floor progression, loot, inventory, abilities, effects and the HUD. It fails on any console error or warning and saves screenshots to `smoke-out/`. Install the browser once with `npx playwright install chromium`.
+- **Unit tests** (`npm test`, Vitest) cover the pure game logic: dungeon generation and boss order, the collision grid, damage formulas, loot rolls, inventory, leveling and attribute picks, pathfinding, the fixed-step clock and minimap exploration.
+- **Smoke test** (`npm run smoke`) starts the dev server and plays the game in headless Chromium with Playwright. It checks movement, combat, every enemy type, all six floors and their bosses, loot, inventory, abilities, level-ups, effects and the HUD. It fails on any console error or warning, and saves screenshots to `smoke-out/`. Install the browser once with `npx playwright install chromium`.
 
-### Layout
+### Project layout
 
 ```
 src/
   core/      Game loop, fixed-step clock, input, seeded RNG, event bus, camera rig
   world/     Dungeon generator, tile grid and collision, voxel level builder, torches, fog of war
   entities/  Player and gear models, enemies, bosses (bosses/), chests, pickups, portal
-  systems/   Damage, loot, inventory, leveling, attributes (perks), projectiles, pathfinding, particles, audio
-  ui/        HUD, minimap, inventory panel, level-up panel, damage numbers, FPS meter
+  systems/   Damage, loot, inventory, leveling, attributes, projectiles, pathfinding, particles, audio
+  ui/        HUD, minimap, inventory, level-up screen, damage numbers, FPS meter
+tests/       Vitest unit tests
+scripts/     Playwright smoke test
+docs/        README screenshots
 ```
 
-### Design notes
+### How it's built
 
-- **Pure logic is separate from rendering.** Generation, loot, damage and progression don't import three.js, so they're tested headlessly.
-- **Seeded randomness.** A mulberry32 RNG derives each floor, its boss and the level-up offers from the run seed.
-- **Grid collision.** Entities are circles that slide against wall tiles. There's no physics engine.
-- **Fixed timestep.** The simulation ticks at 60 Hz regardless of display rate. Camera, particles, damage numbers and the minimap update every rendered frame.
-- **Event-driven presentation.** The simulation emits events (`hit`, `enemyDied`, `explosion`, ...). Sound, particles, damage numbers, screen shake and toasts subscribe to them and never touch game state.
-- **Cheap rendering.** Level geometry is one `InstancedMesh` per material, and all particles share one pooled `InstancedMesh`. A small pool of point lights follows the torches nearest the player. If the frame rate stays below 45, the renderer lowers its pixel ratio.
-- **Audio** is synthesised with Web Audio (oscillators plus filtered noise). It starts on the first key press or click, as browsers require.
+- **Game logic is separate from rendering.** Generation, loot, damage and progression don't import three.js, so they're tested without a browser.
+- **Seeded randomness.** A mulberry32 RNG derives every floor, its boss and the level-up offers from the run seed.
+- **Grid collision.** Characters are circles that slide along wall tiles; there's no physics engine.
+- **Fixed timestep.** The simulation runs at 60 Hz regardless of screen refresh rate. The camera, particles, damage numbers and minimap update every rendered frame.
+- **Event-driven effects.** The simulation emits events (`hit`, `enemyDied`, `explosion`, ...). Sound, particles, damage numbers, screen shake and messages listen for them and never change game state.
+- **Cheap rendering.** Level geometry is one instanced mesh per material, and all particles share a single pooled instanced mesh. A small pool of point lights follows the torches nearest the player. If the frame rate stays below 45, the renderer lowers its resolution.
+- **Synthesised audio.** Sound effects are built from Web Audio oscillators and filtered noise. Audio starts on the first key press or click, as browsers require.
