@@ -1,5 +1,5 @@
 
-# Voxel Dungeon
+# Pixel Bastion
 
 A dungeon crawler that runs in the browser, built entirely from coloured cubes. Descend through endless procedurally generated floors, collect loot with special powers, choose how your character grows, and see how deep you can get.
 
