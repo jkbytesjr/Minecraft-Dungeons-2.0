@@ -1,8 +1,4 @@
-Written for: people visiting the project's GitHub page.
 
-The file is [README.md](README.md) in the project folder. Here's the full text to copy. The images only show up if the `docs/screenshots/` folder is in the GitHub repo too, which happens automatically if you push this repo.
-
-````markdown
 # Voxel Dungeon
 
 A dungeon crawler that runs in the browser, built entirely from coloured cubes. Fight through six procedurally generated floors, collect loot, choose how your character grows, and defeat a different boss on each floor.
@@ -127,6 +123,3 @@ docs/        README screenshots
 - **Event-driven effects.** The simulation emits events (`hit`, `enemyDied`, `explosion`, ...). Sound, particles, damage numbers, screen shake and messages listen for them and never change game state.
 - **Cheap rendering.** Level geometry is one instanced mesh per material, and all particles share a single pooled instanced mesh. A small pool of point lights follows the torches nearest the player. If the frame rate stays below 45, the renderer lowers its resolution.
 - **Synthesised audio.** Sound effects are built from Web Audio oscillators and filtered noise. Audio starts on the first key press or click, as browsers require.
-````
-
-If you meant something else, like putting the whole project on GitHub, tell me. I can push it once you've created an empty repo and sent me its URL.
