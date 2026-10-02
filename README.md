@@ -19,6 +19,7 @@ Nothing is pre-made: dungeon layouts, character models, loot and sound effects a
 - **Loot** in four rarities (common, rare, unique, mythic) with random stat modifiers. Unique and mythic weapons carry special powers like Chain Lightning and Ignite. Your equipped armor and weapon show on your character.
 - **Level-up choices**: each level pauses the game and offers three random attributes to pick from. Levels come faster the deeper you go.
 - **Title screen and saves**: continue a saved run, start a new one or play a specific seed. The game autosaves at every floor, and Esc lets you save and quit.
+- **Detailed voxel art**: characters with faces, outfits and gear, distinct enemy and boss designs, banners and clutter in the rooms, and a slate-roofed building around the whole dungeon.
 - **Game feel**: particles, floating damage numbers, screen shake, a slow-motion "boss defeated" finale, a fog-of-war minimap, and sound effects synthesised in the browser.
 
 ## Screenshots
@@ -135,5 +136,5 @@ docs/        README screenshots
 - **Grid collision.** Characters are circles that slide along wall tiles; there's no physics engine.
 - **Fixed timestep.** The simulation runs at 60 Hz regardless of screen refresh rate. The camera, particles, damage numbers and minimap update every rendered frame.
 - **Event-driven effects.** The simulation emits events (`hit`, `enemyDied`, `explosion`, ...). Sound, particles, damage numbers, screen shake and messages listen for them and never change game state.
-- **Cheap rendering.** Level geometry is one instanced mesh per material, and all particles share a single pooled instanced mesh. A small pool of point lights follows the torches nearest the player. If the frame rate stays below 45, the renderer lowers its resolution.
+- **Cheap rendering.** Level geometry (floors, walls, rooftop, props) is one instanced mesh per kind, character models merge their boxes into one mesh per body part, and all particles share a single pooled instanced mesh. A small pool of point lights follows the torches nearest the player. If the frame rate stays below 45, the renderer lowers its resolution.
 - **Synthesised audio.** Sound effects are built from Web Audio oscillators and filtered noise. Audio starts on the first key press or click, as browsers require.
