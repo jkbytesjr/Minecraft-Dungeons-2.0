@@ -1,9 +1,10 @@
 /** Item model and loot rolls. Pure logic (no three.js), unit-tested. */
 import type { Rng } from '../core/rng';
 import { BASE_WEAPONS, type WeaponKind } from './weapons';
+import { rollPowers, type WeaponPower } from './powers';
 
-export type Rarity = 'common' | 'rare' | 'unique';
-export const RARITIES: readonly Rarity[] = ['common', 'rare', 'unique'];
+export type Rarity = 'common' | 'rare' | 'unique' | 'mythic';
+export const RARITIES: readonly Rarity[] = ['common', 'rare', 'unique', 'mythic'];
 
 export type StatKey = 'damagePct' | 'critChance' | 'attackSpeedPct' | 'maxHp' | 'armor' | 'moveSpeedPct' | 'lifeOnHit';
 
@@ -25,6 +26,8 @@ export interface WeaponItem extends ItemBase {
   kind: 'weapon';
   weapon: WeaponKind;
   damage: number;
+  /** Special powers (unique and mythic weapons only). */
+  powers?: WeaponPower[];
 }
 
 export interface ArmorItem extends ItemBase {
@@ -40,8 +43,8 @@ export type Drop = { type: 'item'; item: Item } | { type: 'potion' };
 
 export type DropSource = 'grunt' | 'archer' | 'exploder' | 'boss' | 'chest';
 
-export const RARITY_MULT: Record<Rarity, number> = { common: 1, rare: 1.3, unique: 1.7 };
-const MOD_COUNT: Record<Rarity, [number, number]> = { common: [0, 1], rare: [2, 2], unique: [3, 3] };
+export const RARITY_MULT: Record<Rarity, number> = { common: 1, rare: 1.3, unique: 1.7, mythic: 2.2 };
+const MOD_COUNT: Record<Rarity, [number, number]> = { common: [0, 1], rare: [2, 2], unique: [3, 3], mythic: [4, 4] };
 
 /** Base [min, max] roll per stat at item level 0. `flat` stats also scale with item level. */
 export const MOD_RANGES: Record<StatKey, { min: number; max: number; flat: boolean }> = {
@@ -78,14 +81,30 @@ const UNIQUE_NAMES: Record<WeaponKind | 'armor', string[]> = {
   armor: ['Aegis of Cinders', 'Mantle of the Deep', 'Ironheart Plate'],
 };
 
+const MYTHIC_NAMES: Record<WeaponKind | 'armor', string[]> = {
+  sword: ['Godsplitter', 'Last Ember', 'Oathbreaker'],
+  spear: ['Heavenpiercer', 'Spine of the World', 'Tidecaller'],
+  bow: ['Skyrender', 'Eventide', 'The Silent Choir'],
+  armor: ['Raiment of the Undying', 'Starforged Bulwark', 'Crown-Eater Mail'],
+};
+
 const levelScale = (itemLevel: number, perLevel: number) => 1 + perLevel * itemLevel;
 
-export function rollRarity(rng: Rng, minRarity: Rarity = 'common', uniqueBoost = 0): Rarity {
+/**
+ * Mythic odds start below 1% and grow with item level (the floor it dropped
+ * on), so deep floors and bosses are where mythics turn up.
+ */
+export function mythicWeight(itemLevel: number, uniqueBoost: number): number {
+  return 0.5 + 0.15 * Math.min(itemLevel, 30) + uniqueBoost * 0.15;
+}
+
+export function rollRarity(rng: Rng, minRarity: Rarity = 'common', uniqueBoost = 0, itemLevel = 0): Rarity {
   const floor = RARITIES.indexOf(minRarity);
   const weights: [Rarity, number][] = [
     ['common', 70],
     ['rare', 25],
     ['unique', 5 + uniqueBoost],
+    ['mythic', mythicWeight(itemLevel, uniqueBoost)],
   ];
   return rng.weighted(weights.filter(([r]) => RARITIES.indexOf(r) >= floor));
 }
@@ -104,6 +123,7 @@ export function rollModifiers(rng: Rng, rarity: Rarity, itemLevel: number): Modi
 }
 
 function itemName(rng: Rng, base: WeaponKind | 'armor', rarity: Rarity, mods: Modifier[]): string {
+  if (rarity === 'mythic') return rng.pick(MYTHIC_NAMES[base]);
   if (rarity === 'unique') return rng.pick(UNIQUE_NAMES[base]);
   const name = rng.pick(BASE_NAMES[base]);
   return rarity === 'rare' && mods.length ? `${PREFIX[mods[0].stat]} ${name}` : name;
@@ -116,7 +136,7 @@ export interface RollOptions {
 }
 
 export function rollItem(rng: Rng, itemLevel: number, opts: RollOptions = {}): Item {
-  const rarity = rollRarity(rng, opts.minRarity, opts.uniqueBoost);
+  const rarity = rollRarity(rng, opts.minRarity, opts.uniqueBoost, itemLevel);
   const kind = opts.kind ?? (rng.chance(0.55) ? 'weapon' : 'armor');
   const mods = rollModifiers(rng, rarity, itemLevel);
   const id = rng.int(1, 2 ** 31 - 1);
@@ -124,7 +144,9 @@ export function rollItem(rng: Rng, itemLevel: number, opts: RollOptions = {}): I
   if (kind === 'weapon') {
     const weapon = rng.pick(['sword', 'spear', 'bow'] as const);
     const damage = Math.round(BASE_WEAPONS[weapon].damage * levelScale(itemLevel, 0.25) * mult * rng.range(0.9, 1.1));
-    return { kind, id, weapon, damage, rarity, itemLevel, mods, name: itemName(rng, weapon, rarity, mods) };
+    const name = itemName(rng, weapon, rarity, mods);
+    const powers = rollPowers(rng, rarity);
+    return { kind, id, weapon, damage, rarity, itemLevel, mods, name, ...(powers.length ? { powers } : {}) };
   }
   return {
     kind,
@@ -169,7 +191,7 @@ export const STARTER_WEAPON: WeaponItem = {
   mods: [],
 };
 
-export const RARITY_COLOR: Record<Rarity, string> = { common: '#d8d8d8', rare: '#5aa9ff', unique: '#ff9a2e' };
+export const RARITY_COLOR: Record<Rarity, string> = { common: '#d8d8d8', rare: '#5aa9ff', unique: '#ff9a2e', mythic: '#ff3d6e' };
 
 const STAT_LABEL: Record<StatKey, (v: number) => string> = {
   damagePct: (v) => `+${Math.round(v * 100)}% damage`,

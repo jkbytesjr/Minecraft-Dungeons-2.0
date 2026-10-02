@@ -9,6 +9,7 @@ import { Inventory, computeStats, type DerivedStats } from '../systems/inventory
 import { addXp, newProgress, type Progress } from '../systems/progression';
 import type { ArmorItem, WeaponItem } from '../systems/loot';
 import type { PerkId } from '../systems/perks';
+import type { WeaponPower } from '../systems/powers';
 
 export interface PlayerInput {
   /** Desired move direction on XZ (not necessarily normalized). */
@@ -77,6 +78,10 @@ export class Player extends Actor {
 
   get weapon(): WeaponDef {
     return BASE_WEAPONS[this.inventory.weapon.weapon];
+  }
+
+  get weaponPowers(): readonly WeaponPower[] {
+    return this.inventory.weapon.powers ?? [];
   }
 
   get dodgeCooldownMax(): number {

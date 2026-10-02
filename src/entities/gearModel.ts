@@ -3,8 +3,9 @@ import { voxelBox, type HumanoidParts } from './voxelModel';
 import type { ArmorItem, Rarity, WeaponItem } from '../systems/loot';
 
 /** Blade/tip colour per rarity, so better weapons read at a glance. */
-const BLADE: Record<Rarity, number> = { common: 0xd7dde3, rare: 0x8fc4ff, unique: 0xffb347 };
-const TRIM: Record<Rarity, number> = { common: 0x5a4632, rare: 0x3a7bd5, unique: 0xffb02e };
+const BLADE: Record<Rarity, number> = { common: 0xd7dde3, rare: 0x8fc4ff, unique: 0xffb347, mythic: 0xff4d6d };
+const TRIM: Record<Rarity, number> = { common: 0x5a4632, rare: 0x3a7bd5, unique: 0xffb02e, mythic: 0xd61f4a };
+const top = (r: Rarity) => r === 'unique' || r === 'mythic';
 
 /** Held-weapon mesh. Swords/spears go in the right hand, bows in the left. */
 export function buildWeaponMesh(item: WeaponItem): THREE.Group {
@@ -13,12 +14,13 @@ export function buildWeaponMesh(item: WeaponItem): THREE.Group {
   const trim = TRIM[item.rarity];
   if (item.weapon === 'sword') {
     g.add(voxelBox([0.07, 0.07, 0.85], blade, [0, -0.5, 0.5]), voxelBox([0.28, 0.08, 0.08], item.rarity === 'common' ? 0x8a6a2a : trim, [0, -0.5, 0.1]));
-    if (item.rarity === 'unique') g.add(voxelBox([0.1, 0.1, 0.1], 0xfff2b0, [0, -0.5, 0.0]));
+    if (top(item.rarity)) g.add(voxelBox([0.1, 0.1, 0.1], item.rarity === 'mythic' ? 0xffd0dc : 0xfff2b0, [0, -0.5, 0.0]));
+    if (item.rarity === 'mythic') g.add(voxelBox([0.11, 0.11, 0.18], 0xd61f4a, [0, -0.5, 0.98]));
   } else if (item.weapon === 'spear') {
     g.add(voxelBox([0.06, 0.06, 1.7], 0x7a5530, [0, -0.5, 0.45]), voxelBox([0.12, 0.12, 0.3], blade, [0, -0.5, 1.4]));
     if (item.rarity !== 'common') g.add(voxelBox([0.1, 0.1, 0.06], trim, [0, -0.5, 1.22]));
   } else {
-    const wood = item.rarity === 'unique' ? 0x5a2e1a : 0x8a5a2b;
+    const wood = item.rarity === 'mythic' ? 0x2a0f18 : item.rarity === 'unique' ? 0x5a2e1a : 0x8a5a2b;
     g.add(
       voxelBox([0.06, 0.06, 0.95], wood, [0, -0.5, 0.06]),
       voxelBox([0.06, 0.12, 0.08], item.rarity === 'common' ? wood : trim, [0, -0.44, 0.5]),
@@ -34,7 +36,7 @@ type ArmorStyle = 'leather' | 'scale' | 'chain' | 'plate';
 const STYLE_COLOR: Record<ArmorStyle, number> = { leather: 0x7a4e2a, scale: 0x8a7a4a, chain: 0x9aa0a8, plate: 0xb8c0cc };
 
 function armorStyle(item: ArmorItem): ArmorStyle {
-  if (item.rarity === 'unique') return 'plate';
+  if (top(item.rarity)) return 'plate';
   if (item.name.includes('Leather')) return 'leather';
   if (item.name.includes('Scale')) return 'scale';
   if (item.name.includes('Chain')) return 'chain';
@@ -74,6 +76,11 @@ export function attachArmor(parts: HumanoidParts, item: ArmorItem): THREE.Object
     // Cape in the rarity colour.
     add(inner, voxelBox([0.46, 0.66, 0.04], trim, [0, 0.8, -0.2]));
   }
-  if (item.rarity === 'unique') add(inner, voxelBox([0.06, 0.14, 0.38], trim, [0, 1.71, 0]));
+  if (top(item.rarity)) add(inner, voxelBox([0.06, 0.14, 0.38], trim, [0, 1.71, 0]));
+  if (item.rarity === 'mythic') {
+    // Horned helm and dark plate accents.
+    add(inner, voxelBox([0.07, 0.2, 0.07], 0xffd0dc, [-0.2, 1.72, 0.05]), voxelBox([0.07, 0.2, 0.07], 0xffd0dc, [0.2, 1.72, 0.05]));
+    add(inner, voxelBox([0.2, 0.2, 0.36], 0x3a0f1c, [0, 0.95, 0.01]));
+  }
   return added;
 }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { voxelBox } from './voxelModel';
 import type { Drop, Rarity } from '../systems/loot';
 
-const BEAM_COLOR: Record<Rarity, number> = { common: 0xdedede, rare: 0x4aa0ff, unique: 0xff9020 };
+const BEAM_COLOR: Record<Rarity, number> = { common: 0xdedede, rare: 0x4aa0ff, unique: 0xff9020, mythic: 0xff2d5a };
 const beamGeo = new THREE.BoxGeometry(0.14, 3, 0.14);
 const beamMats = new Map<Rarity, THREE.MeshBasicMaterial>();
 

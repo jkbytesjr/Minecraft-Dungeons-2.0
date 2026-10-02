@@ -3,6 +3,7 @@ import type { Boss } from '../entities/boss';
 import { xpToNext } from '../systems/progression';
 import { RARITY_COLOR, describeModifier, type Item } from '../systems/loot';
 import { iconFor } from './inventoryPanel';
+import { describePower } from '../systems/powers';
 
 const GLYPHS = {
   potion:
@@ -17,8 +18,13 @@ type AbilityName = keyof typeof GLYPHS;
 
 export interface RunSummary {
   seed: number;
+  /** Floor reached (1-based). */
+  floor: number;
   time: number;
   kills: number;
+  /** Deepest floor ever reached on this browser. */
+  best: number;
+  newBest: boolean;
 }
 
 function formatTime(seconds: number): string {
@@ -40,7 +46,7 @@ function ability(name: AbilityName, key: string, title: string): string {
 
 /** DOM overlay: vitals, XP, ability cooldowns, boss bar, toasts, end screens. */
 export class Hud {
-  /** Called when the player picks "New run" on the victory screen. */
+  /** Called when the player picks "New run" on the death screen. */
   onNewRun: () => void = () => {};
   private readonly hpFill: HTMLDivElement;
   private readonly hpText: HTMLSpanElement;
@@ -49,7 +55,6 @@ export class Hud {
   private readonly xpFill: HTMLDivElement;
   private readonly levelBadge: HTMLSpanElement;
   private readonly deathScreen: HTMLDivElement;
-  private readonly victoryScreen: HTMLDivElement;
   private readonly floorLabel: HTMLDivElement;
   private readonly bossBar: HTMLDivElement;
   private readonly bossName: HTMLDivElement;
@@ -109,16 +114,13 @@ export class Hud {
       </div>
       <div class="screen death hidden">
         <h1>You have fallen</h1>
-        <button type="button" class="btn restart">Try again</button>
-        <p class="hint">or press R</p>
-      </div>
-      <div class="screen victory hidden">
-        <h1>Victory!</h1>
         <p class="summary"></p>
+        <p class="best"></p>
         <div class="row">
-          <button type="button" class="btn new-run">New run</button>
-          <button type="button" class="btn secondary replay">Replay this seed</button>
+          <button type="button" class="btn restart">Try again</button>
+          <button type="button" class="btn secondary new-run">New run</button>
         </div>
+        <p class="hint">Try again replays this seed (or press R). New run rolls a new dungeon.</p>
       </div>`;
     this.hpFill = root.querySelector('.hp-fill')!;
     this.hpText = root.querySelector('.hp-text')!;
@@ -129,7 +131,6 @@ export class Hud {
     this.xpFill = root.querySelector('.xp-fill')!;
     this.levelBadge = root.querySelector('.level-badge')!;
     this.deathScreen = root.querySelector('.death')!;
-    this.victoryScreen = root.querySelector('.victory')!;
     this.floorLabel = root.querySelector('.floor-label')!;
     this.bossBar = root.querySelector('.boss-bar')!;
     this.bossName = root.querySelector('.boss-name')!;
@@ -143,7 +144,6 @@ export class Hud {
     this.controls = root.querySelector('.controls-panel')!;
     this.soundHint = root.querySelector('.sound-hint')!;
     root.querySelector('.restart')!.addEventListener('click', onRestart);
-    root.querySelector('.replay')!.addEventListener('click', onRestart);
     root.querySelector('.new-run')!.addEventListener('click', () => this.onNewRun());
   }
 
@@ -188,7 +188,9 @@ export class Hud {
     el.style.setProperty('--rarity', RARITY_COLOR[item.rarity]);
     el.innerHTML = iconFor(item);
     const base = item.kind === 'weapon' ? `${item.damage} damage` : `${item.armor} armor, +${item.maxHp} max HP`;
-    el.title = [item.name, base, ...item.mods.map(describeModifier)].join('\n');
+    const powers = item.kind === 'weapon' ? (item.powers ?? []).map(describePower) : [];
+    el.title = [item.name, base, ...item.mods.map(describeModifier), ...powers].join('\n');
+    el.classList.toggle('mythic', item.rarity === 'mythic');
   }
 
   private setAbility(name: AbilityName, cooldownFraction: number): void {
@@ -238,8 +240,8 @@ export class Hud {
     this.soundHint.textContent = muted ? 'Sound off' : 'Sound on';
   }
 
-  setFloor(floor: number, total: number, seed: number): void {
-    this.floorLabel.textContent = `Floor ${floor} / ${total} · Seed ${seed}`;
+  setFloor(floor: number, seed: number): void {
+    this.floorLabel.textContent = `Floor ${floor} · Seed ${seed}`;
   }
 
   /** Short message in the upper middle of the screen. */
@@ -253,14 +255,15 @@ export class Hud {
     window.setTimeout(() => el.remove(), 2600);
   }
 
-  showDeath(visible: boolean): void {
-    this.deathScreen.classList.toggle('hidden', !visible);
-  }
-
-  showVictory(summary: RunSummary | null): void {
-    this.victoryScreen.classList.toggle('hidden', !summary);
+  /** Death screen with the run's summary; `null` hides it. */
+  showDeath(summary: RunSummary | null): void {
+    this.deathScreen.classList.toggle('hidden', !summary);
     if (!summary) return;
-    this.victoryScreen.querySelector('.summary')!.textContent =
-      `All floors cleared in ${formatTime(summary.time)} with ${summary.kills} kills · Seed ${summary.seed}`;
+    this.deathScreen.querySelector('.summary')!.textContent =
+      `Reached floor ${summary.floor} in ${formatTime(summary.time)} with ${summary.kills} kills · Seed ${summary.seed}`;
+    this.deathScreen.querySelector('.best')!.textContent = summary.newBest
+      ? `New best: floor ${summary.best}!`
+      : `Best: floor ${summary.best}`;
+    this.deathScreen.querySelector('.best')!.classList.toggle('new', summary.newBest);
   }
 }

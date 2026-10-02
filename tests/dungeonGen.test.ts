@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BOSS_KINDS, FLOORS, bossOrder, generateDungeon, type Dungeon } from '../src/world/dungeonGen';
+import { BOSS_KINDS, bossForFloor, generateDungeon, type Dungeon } from '../src/world/dungeonGen';
+
+/** A floor far beyond where most runs end. */
+const DEEP = 30;
 import { Tile } from '../src/world/grid';
 
 /** Count floor tiles reachable from the player start (4-connected). */
@@ -45,7 +48,7 @@ describe('generateDungeon', () => {
   });
 
   for (const seed of SEEDS) {
-    for (const depth of [0, 2, FLOORS - 1]) {
+    for (const depth of [0, 2, DEEP]) {
       it(`seed ${seed} depth ${depth}: connected, enclosed, sane spawns`, () => {
         const d = generateDungeon(seed, depth);
         const { grid } = d;
@@ -99,33 +102,33 @@ describe('generateDungeon', () => {
     expect(avg(2)).toBeGreaterThan(avg(0));
   });
 
-  it('the deepest floor still has a sane enemy count', () => {
-    for (const seed of SEEDS) expect(generateDungeon(seed, FLOORS - 1).spawns.length).toBeLessThan(80);
+  it('very deep floors still have a sane enemy count', () => {
+    for (const seed of SEEDS) expect(generateDungeon(seed, DEEP).spawns.length).toBeLessThan(80);
   });
 });
 
-describe('bossOrder', () => {
+describe('bossForFloor', () => {
+  const order = (seed: number, n: number) => Array.from({ length: n }, (_, d) => bossForFloor(seed, d));
+
   it('starts with the Colossus and shows every boss on floors 1-4', () => {
     for (let seed = 1; seed < 200; seed++) {
-      const order = bossOrder(seed);
-      expect(order).toHaveLength(FLOORS);
-      expect(order[0]).toBe('colossus');
-      expect(new Set(order.slice(0, 4))).toEqual(new Set(BOSS_KINDS));
+      const o = order(seed, 4);
+      expect(o[0]).toBe('colossus');
+      expect(new Set(o)).toEqual(new Set(BOSS_KINDS));
     }
   });
 
-  it('rematches are two different bosses, never back-to-back with floor 4', () => {
-    for (let seed = 1; seed < 200; seed++) {
-      const order = bossOrder(seed);
-      expect(order[4]).not.toBe(order[5]);
-      expect(order[4]).not.toBe(order[3]);
+  it('keeps going forever without repeating a boss on back-to-back floors', () => {
+    for (let seed = 1; seed < 50; seed++) {
+      const o = order(seed, 40);
+      for (let d = 1; d < o.length; d++) expect(o[d]).not.toBe(o[d - 1]);
+      expect(new Set(o.slice(4))).toEqual(new Set(BOSS_KINDS));
     }
   });
 
   it('varies between seeds and matches the generated floors', () => {
-    const orders = new Set(Array.from({ length: 50 }, (_, i) => bossOrder(i).join()));
-    expect(orders.size).toBeGreaterThan(3);
+    expect(new Set(Array.from({ length: 50 }, (_, i) => order(i, 8).join())).size).toBeGreaterThan(3);
     const seed = 4242;
-    expect(Array.from({ length: FLOORS }, (_, d) => generateDungeon(seed, d).boss)).toEqual(bossOrder(seed));
+    expect(Array.from({ length: 8 }, (_, d) => generateDungeon(seed, d).boss)).toEqual(order(seed, 8));
   });
 });

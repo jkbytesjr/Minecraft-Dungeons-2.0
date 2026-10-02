@@ -787,3 +787,60 @@ body {
   border: 1px solid color-mix(in srgb, var(--perk) 60%, transparent);
   border-radius: 10px;
 }
+
+.dmg.burn {
+  font-size: 14px;
+  color: #ff9a3c;
+}
+
+/* ---- Weapon powers and mythic items ---- */
+
+.tt-powers {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+  display: grid;
+  gap: 6px;
+}
+
+.tt-power {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.tt-power b {
+  color: var(--power);
+  font-size: 13px;
+}
+
+.tt-power span {
+  opacity: 0.85;
+}
+
+/* Mythic items pulse, in the bag and in the HUD. */
+.slot.filled[style*='#ff3d6e'],
+.gear-slot.mythic {
+  animation: mythic-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes mythic-glow {
+  50% {
+    box-shadow:
+      0 0 14px rgb(255 61 110 / 0.75),
+      inset 0 0 12px rgb(255 61 110 / 0.45);
+  }
+}
+
+.screen .summary,
+.screen .best {
+  margin: 4px 0;
+  opacity: 0.85;
+}
+
+.screen .best.new {
+  color: #ffd23f;
+  font-weight: 700;
+  opacity: 1;
+}

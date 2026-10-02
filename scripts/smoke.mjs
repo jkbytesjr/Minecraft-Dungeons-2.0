@@ -112,6 +112,7 @@ try {
   await page.evaluate(() => window.__game.world.player.applyDamage(9999, 0, 0));
   await page.waitForTimeout(600);
   check(await page.isVisible('.screen.death'), 'death screen shows at 0 HP');
+  check((await page.textContent('.screen.death .summary')).includes('Reached floor 1'), 'death screen shows the floor reached');
   await page.screenshot({ path: `${outDir}/05-death.png` });
   await page.click('.restart');
   await page.waitForTimeout(200);
@@ -141,8 +142,8 @@ try {
   check(ex.player.hp < ex.player.maxHp && !ex.enemies.some((e) => e.kind === 'exploder' && e.alive), `exploder detonates (hp ${ex.player.hp})`);
 
   // Bosses: walk into each arena, let the boss fight a while, then kill it and use the portal.
-  const floors = (await extra()).floors;
-  check(floors === 6, `a run has 6 floors (${floors})`);
+  // Floors are endless; walk through enough to see two boss title upgrades.
+  const floors = 9;
   const bossKinds = [];
   for (let depth = 0; depth < floors; depth++) {
     const boss = (await state()).enemies.find((e) => e.kind === 'boss');
@@ -157,6 +158,9 @@ try {
     bossKinds.push(info.bossKind);
     check(info.bossEngaged, `floor ${depth + 1}: ${info.bossKind} engages`);
     if (depth === 0) check(await page.isVisible('.boss-bar'), 'boss health bar shows');
+    const bossName = await page.textContent('.boss-name');
+    if (depth === 4) check(bossName.endsWith('Reborn'), `floor 5 boss is Reborn (${bossName})`);
+    if (depth === 8) check(bossName.endsWith('Ascendant'), `floor 9 boss is Ascendant (${bossName})`);
     if (depth < 4) await page.screenshot({ path: `${outDir}/09-boss-${depth + 1}-${info.bossKind}.png` });
     await page.evaluate(() => window.__game.debugKillBoss());
     await page.waitForTimeout(300);
@@ -164,15 +168,25 @@ try {
     const exit = await page.evaluate(() => window.__game.level.exit);
     await page.evaluate(({ x, z }) => window.__game.debugTeleport(x, z), exit);
     await page.waitForTimeout(300);
-    if (depth < floors - 1) check((await extra()).depth === depth + 1, `portal leads to floor ${depth + 2}`);
+    check((await extra()).depth === depth + 1, `portal leads to floor ${depth + 2}`);
   }
   check(bossKinds[0] === 'colossus' && new Set(bossKinds.slice(0, 4)).size === 4, `floors 1-4 have four different bosses (${bossKinds.join(', ')})`);
-  check(bossKinds[4] !== bossKinds[5] && bossKinds[4] !== bossKinds[3], 'floors 5-6 are two different rematches');
-  check(await page.isVisible('.screen.victory'), 'victory screen after the final boss');
-  await page.screenshot({ path: `${outDir}/10-victory.png` });
+  check(bossKinds.every((b, i) => i === 0 || b !== bossKinds[i - 1]), 'no boss repeats on back-to-back floors');
+  check(await page.textContent('.floor-label').then((t) => t.startsWith('Floor 10 ·')), 'floors keep going past the old 6-floor limit');
+  await page.screenshot({ path: `${outDir}/10-floor10.png` });
+
+  // Death ends the run: summary, best floor, and New run rolls a new seed.
+  const seedBefore = await page.evaluate(() => window.__game.seed);
+  await page.evaluate(() => window.__game.worldState.player.applyDamage(1e9, 0, 0));
+  await page.waitForTimeout(400);
+  check((await page.textContent('.screen.death .summary')).includes('Reached floor 10'), 'death summary shows floor 10');
+  check((await extra()).bestFloor >= 10, `best floor is recorded (${(await extra()).bestFloor})`);
   await page.click('.new-run');
   await page.waitForTimeout(200);
-  check((await extra()).depth === 0 && !(await page.isVisible('.screen.victory')), 'new run starts at floor 1');
+  check(
+    (await extra()).depth === 0 && (await page.evaluate(() => window.__game.seed)) !== seedBefore && !(await page.isVisible('.screen.death')),
+    'New run starts a fresh dungeon at floor 1',
+  );
 
   // --- M5: loot, chests, inventory, weapons, abilities, potions ---
   await page.evaluate(() => window.__game.restart());
@@ -274,6 +288,66 @@ try {
   await waitSim(0.1);
   const healed = await state();
   check(healed.player.hp > 20 && healed.player.potions === 1, `1 drinks a potion (hp ${healed.player.hp})`);
+
+  // --- Weapon powers ---
+  await page.evaluate(() => window.__game.restart());
+  await waitSim(0.2);
+  await page.evaluate(() => {
+    const g = window.__game;
+    window.__fx = { power: {}, burn: 0, status: {} };
+    g.events.on('power', (e) => (window.__fx.power[e.id] = (window.__fx.power[e.id] ?? 0) + 1));
+    g.events.on('burnTick', () => window.__fx.burn++);
+    g.events.on('status', (e) => (window.__fx.status[e.kind] = (window.__fx.status[e.kind] ?? 0) + 1));
+  });
+  /** Equip a sword with the given powers, surround the player with grunts, and swing for a while. */
+  const testPowers = async (powers, crit) => {
+    await page.evaluate(
+      ({ powers, crit }) => {
+        const g = window.__game;
+        const p = g.worldState.player;
+        p.inventory.weapon = { ...p.inventory.weapon, id: Math.random(), rarity: 'mythic', weapon: 'sword', damage: 6, powers };
+        p.refreshEquipment();
+        p.maxHp = p.hp = 100000;
+        if (crit) p.stats.critChance = 1;
+        g.debugSpawn('grunt', 1.3, 0);
+        for (const [dx, dz] of [[1.5, 0.8], [1.5, -0.8], [2.2, 0]]) g.worldState.spawn(g.debugCreateEnemy('grunt'), p.pos.x + dx, p.pos.z + dz);
+      },
+      { powers, crit },
+    );
+    await page.mouse.move(...Object.values(await page.evaluate(() => {
+      const p = window.__game.worldState.player.pos;
+      return window.__game.debugWorldToScreen(p.x + 1.5, p.z);
+    })));
+    await page.mouse.down();
+    await waitSim(2.5);
+    await page.mouse.up();
+    return page.evaluate(() => window.__fx);
+  };
+  let fxc = await testPowers([{ id: 'ignite', tier: 2 }, { id: 'chain', tier: 2 }], false);
+  check(fxc.burn > 0 && fxc.status.burn > 0, `Ignite burns enemies (${fxc.burn} burn ticks)`);
+  check((fxc.power.chain ?? 0) > 0, `Chain Lightning arcs between enemies (${fxc.power.chain ?? 0})`);
+  await page.screenshot({ path: `${outDir}/17-powers.png` });
+  fxc = await testPowers([{ id: 'shockwave', tier: 2 }, { id: 'detonate', tier: 2 }], true);
+  check((fxc.power.shockwave ?? 0) > 0, `Shockwave triggers (${fxc.power.shockwave ?? 0})`);
+  check((fxc.power.detonate ?? 0) > 0, `Detonate triggers on crits (${fxc.power.detonate ?? 0})`);
+  fxc = await testPowers([{ id: 'frost', tier: 2 }], false);
+  check((fxc.status.chill ?? 0) + (fxc.status.freeze ?? 0) > 0, 'Frost chills enemies');
+  await page.evaluate(() => {
+    window.__game.debugGive('weapon', 'mythic');
+    const inv = window.__game.worldState.player.inventory;
+    const it = inv.bag[inv.bag.length - 1];
+    window.__mythic = { rarity: it.rarity, powers: it.powers?.length ?? 0 };
+  });
+  const myth = await page.evaluate(() => window.__mythic);
+  check(myth.rarity === 'mythic' && myth.powers === 2, 'mythic weapons roll with two powers');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(150);
+  await page.hover(`[data-bag="${(await state()).player.bag - 1}"]`);
+  await page.waitForTimeout(120);
+  check((await page.locator('.tooltip .tt-power').count()) === 2, 'tooltip lists the weapon powers');
+  await page.screenshot({ path: `${outDir}/18-mythic-tooltip.png` });
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(100);
 
   // --- Level-up attribute choice ---
   await page.evaluate(() => window.__game.restart());

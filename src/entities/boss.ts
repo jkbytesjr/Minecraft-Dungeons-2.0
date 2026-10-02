@@ -38,8 +38,9 @@ export abstract class Boss extends Enemy {
 
   protected constructor(name: string, depth: number, maxHp: number, model: HumanoidParts, barHeight: number) {
     super(maxHp, model, barHeight);
-    // Floors 5+ bring back earlier bosses.
-    this.name = depth >= 4 ? `${name} Reborn` : name;
+    // Every four floors the returning bosses earn a grander title.
+    const tier = Math.floor(depth / 4);
+    this.name = tier === 0 ? name : `${name} ${['Reborn', 'Ascendant'][tier - 1] ?? 'Eternal'}`;
     this.knockbackTaken = 0.12;
   }
 

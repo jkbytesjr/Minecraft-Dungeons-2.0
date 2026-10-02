@@ -11,9 +11,6 @@ export type EnemyKind = 'grunt' | 'archer' | 'exploder' | 'boss';
 export type BossKind = 'colossus' | 'huntress' | 'pyromancer' | 'necromancer';
 export const BOSS_KINDS: readonly BossKind[] = ['colossus', 'huntress', 'pyromancer', 'necromancer'];
 
-/** Floors in a run. */
-export const FLOORS = 6;
-
 export interface Room {
   id: number;
   x: number;
@@ -68,17 +65,19 @@ function enemyWeights(depth: number): [EnemyKind, number][] {
 }
 
 /**
- * The boss for every floor of a run. Floor 1 is always the Colossus (the
- * gentlest fight); floors 2-4 are the other three in a seeded order, so each
- * boss appears once. Floors 5-6 are rematches with two different bosses, and
- * floor 5 never repeats floor 4's boss.
+ * The boss guarding floor `depth` (0-based) of a run. Floor 1 is always the
+ * Colossus (the gentlest fight); floors 2-4 are the other three in a seeded
+ * order, so each boss appears once. After that the floors go on forever, each
+ * with a seeded boss that is never the same as the previous floor's.
  */
-export function bossOrder(seed: number): BossKind[] {
-  const rng = new Rng(hashSeed(`${seed}:bosses`));
-  const first: BossKind[] = ['colossus', ...rng.shuffle(BOSS_KINDS.filter((b) => b !== 'colossus'))];
-  const rematch = rng.shuffle([...BOSS_KINDS]).slice(0, FLOORS - first.length);
-  if (rematch[0] === first[first.length - 1]) rematch.reverse();
-  return [...first, ...rematch];
+export function bossForFloor(seed: number, depth: number): BossKind {
+  const first: BossKind[] = ['colossus', ...new Rng(hashSeed(`${seed}:bosses`)).shuffle(BOSS_KINDS.filter((b) => b !== 'colossus'))];
+  if (depth < first.length) return first[Math.max(0, depth)];
+  let prev = first[first.length - 1];
+  for (let d = first.length; d <= depth; d++) {
+    prev = new Rng(hashSeed(`${seed}:boss:${d}`)).pick(BOSS_KINDS.filter((b) => b !== prev));
+  }
+  return prev;
 }
 
 export function generateDungeon(seed: number, depth: number): Dungeon {
@@ -214,7 +213,7 @@ export function generateDungeon(seed: number, depth: number): Dungeon {
     spawns,
     chests,
     exit,
-    boss: bossOrder(seed)[depth % FLOORS],
+    boss: bossForFloor(seed, depth),
     theme: depth,
     torches: placeTorches(grid, 6),
     playerStart: { x: sc.x + 0.5, z: sc.z + 0.5 },

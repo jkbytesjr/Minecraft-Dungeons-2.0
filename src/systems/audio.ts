@@ -170,13 +170,18 @@ export class Sfx {
     if (this.gate('dodge')) this.hiss('bandpass', 600, 2400, 0.2, 0.22);
   }
 
-  pickup(rarity: 'common' | 'rare' | 'unique' | 'potion'): void {
+  pickup(rarity: 'common' | 'rare' | 'unique' | 'mythic' | 'potion'): void {
     if (!this.gate('pickup')) return;
     if (rarity === 'potion') {
       this.notes([660, 880], 0.05, 'sine', 0.12, 0.2);
       return;
     }
-    const chord = { common: [523, 659], rare: [523, 659, 784], unique: [523, 659, 784, 1047] }[rarity];
+    const chord = {
+      common: [523, 659],
+      rare: [523, 659, 784],
+      unique: [523, 659, 784, 1047],
+      mythic: [392, 523, 659, 784, 1047, 1319],
+    }[rarity];
     this.notes(chord, 0.06, 'triangle', 0.18, 0.2);
   }
 
@@ -207,6 +212,30 @@ export class Sfx {
 
   playerDied(): void {
     if (this.gate('playerDied')) this.notes([392, 330, 262, 196], 0.18, 'sawtooth', 0.35, 0.18);
+  }
+
+  zap(): void {
+    if (!this.gate('zap')) return;
+    this.tone('square', 1800, 300, 0.12, 0.12);
+    this.hiss('highpass', 4000, 9000, 0.12, 0.2);
+  }
+
+  freeze(): void {
+    if (!this.gate('freeze')) return;
+    this.notes([1568, 2093, 2637], 0.03, 'sine', 0.2, 0.12);
+    this.hiss('highpass', 6000, 3000, 0.25, 0.15);
+  }
+
+  shockwave(): void {
+    if (!this.gate('shockwave')) return;
+    this.tone('sine', 220, 50, 0.3, 0.4);
+    this.hiss('bandpass', 1200, 200, 0.25, 0.3);
+  }
+
+  detonate(): void {
+    if (!this.gate('detonate')) return;
+    this.hiss('lowpass', 2400, 90, 0.4, 0.5);
+    this.tone('sine', 160, 40, 0.3, 0.4);
   }
 
   denied(): void {

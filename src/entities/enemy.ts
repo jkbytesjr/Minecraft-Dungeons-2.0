@@ -41,6 +41,15 @@ export abstract class Enemy extends Actor {
   /** Set by the world once death has been announced. */
   deathReported = false;
   readonly isBoss: boolean = false;
+  /** Weapon-power status effects; timed down here, applied by the world. */
+  burnTime = 0;
+  burnDps = 0;
+  burnAcc = 0;
+  chillTime = 0;
+  /** Speed multiplier while chilled. */
+  chillSlow = 1;
+  freezeTime = 0;
+  statusFxTimer = 0;
   protected walkPhase = 0;
   private deathTimer = 0;
 
@@ -68,7 +77,11 @@ export abstract class Enemy extends Actor {
   update(dt: number, ctx: EnemyContext, camera: THREE.Camera): void {
     this.tickCommon(dt, ctx.grid);
     if (this.alive) {
-      this.think(dt, ctx);
+      this.chillTime = Math.max(0, this.chillTime - dt);
+      this.freezeTime = Math.max(0, this.freezeTime - dt);
+      // Frozen enemies stop entirely; chilled ones move and attack in slow motion.
+      const timeScale = this.freezeTime > 0 ? 0 : this.chillTime > 0 ? this.chillSlow : 1;
+      if (timeScale > 0) this.think(dt * timeScale, ctx);
     } else {
       this.deathTimer += dt;
       const t = Math.min(1, this.deathTimer / (DEATH_TIME * 0.6));

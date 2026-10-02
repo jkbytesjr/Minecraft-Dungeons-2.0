@@ -1,4 +1,5 @@
 import type { Item } from '../systems/loot';
+import type { PowerId } from '../systems/powers';
 
 /** Minimal typed event bus so audio, particles and HUD can react without coupling. */
 export interface GameEvents {
@@ -12,6 +13,12 @@ export interface GameEvents {
   slam: { x: number; z: number; radius: number };
   dodge: { x: number; z: number };
   teleport: { x: number; z: number };
+  /** A weapon power went off. `points` is the chain-lightning path. */
+  power: { id: PowerId; x: number; z: number; radius?: number; points?: { x: number; z: number }[] };
+  /** Damage-over-time tick (burning). */
+  burnTick: { x: number; z: number; amount: number };
+  /** Periodic cue to draw a status effect on an enemy. */
+  status: { x: number; z: number; kind: 'burn' | 'chill' | 'freeze' };
   levelUp: { level: number };
   itemPicked: { item: Item };
   potionPicked: Record<string, never>;

@@ -3,6 +3,7 @@ import { BAG_SIZE, computeStats, type DerivedStats } from '../systems/inventory'
 import { RARITY_COLOR, describeModifier, type Item } from '../systems/loot';
 import { BASE_WEAPONS } from '../systems/weapons';
 import { PERKS, PERK_IDS } from '../systems/perks';
+import { POWERS } from '../systems/powers';
 
 /** Minimal inline SVG glyphs, so no image assets are needed. */
 const ICONS: Record<string, string> = {
@@ -173,6 +174,16 @@ export class InventoryPanel {
         .map((l) => `<div class="tt-line">${l}</div>`)
         .join('')}
       ${item.mods.length ? `<ul class="tt-mods">${item.mods.map((m) => `<li>${describeModifier(m)}</li>`).join('')}</ul>` : ''}
+      ${
+        item.kind === 'weapon' && item.powers?.length
+          ? `<div class="tt-powers">${item.powers
+              .map(
+                (p) =>
+                  `<div class="tt-power" style="--power:${POWERS[p.id].color}"><b>${POWERS[p.id].name}${p.tier === 2 ? ' (Mythic)' : ''}</b><span>${POWERS[p.id].describe(p.tier)}</span></div>`,
+              )
+              .join('')}</div>`
+          : ''
+      }
       ${diff}`;
     const r = anchor.getBoundingClientRect();
     this.tooltip.classList.remove('hidden');

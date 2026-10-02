@@ -18,6 +18,8 @@ export interface ProjectileSpec {
   color?: number;
   /** Render as a chunky magic bolt instead of an arrow. */
   orb?: boolean;
+  /** Player weapon shot: hits can trigger weapon powers. */
+  proc?: boolean;
 }
 
 interface Projectile extends ProjectileSpec {

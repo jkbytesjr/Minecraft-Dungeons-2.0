@@ -3,15 +3,28 @@ import { Rng } from '../src/core/rng';
 import { MOD_RANGES, RARITY_MULT, rollDrops, rollItem, rollRarity, type Item } from '../src/systems/loot';
 
 describe('rollRarity', () => {
-  it('follows roughly 70/25/5 weights', () => {
+  it('follows roughly 70/25/5 weights, with mythics under 1% on floor 1', () => {
     const rng = new Rng(11);
-    const counts = { common: 0, rare: 0, unique: 0 };
+    const counts = { common: 0, rare: 0, unique: 0, mythic: 0 };
     const N = 20000;
     for (let i = 0; i < N; i++) counts[rollRarity(rng)]++;
     expect(counts.common / N).toBeCloseTo(0.7, 1);
     expect(counts.rare / N).toBeCloseTo(0.25, 1);
     expect(counts.unique / N).toBeGreaterThan(0.03);
     expect(counts.unique / N).toBeLessThan(0.07);
+    expect(counts.mythic).toBeGreaterThan(0);
+    expect(counts.mythic / N).toBeLessThan(0.01);
+  });
+
+  it('makes mythics more common on deeper floors and from bosses', () => {
+    const rate = (itemLevel: number, boost: number) => {
+      const rng = new Rng(77);
+      let n = 0;
+      for (let i = 0; i < 20000; i++) if (rollRarity(rng, 'common', boost, itemLevel) === 'mythic') n++;
+      return n / 20000;
+    };
+    expect(rate(20, 0)).toBeGreaterThan(rate(0, 0) * 3);
+    expect(rate(0, 30)).toBeGreaterThan(rate(0, 0) * 3);
   });
 
   it('respects a minimum rarity', () => {
@@ -33,6 +46,7 @@ describe('rollItem', () => {
       if (item.rarity === 'common') expect(n).toBeLessThanOrEqual(1);
       if (item.rarity === 'rare') expect(n).toBe(2);
       if (item.rarity === 'unique') expect(n).toBe(3);
+      if (item.rarity === 'mythic') expect(n).toBe(4);
       expect(new Set(item.mods.map((m) => m.stat)).size).toBe(n);
     }
   });

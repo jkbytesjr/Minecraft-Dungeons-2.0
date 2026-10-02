@@ -14,6 +14,8 @@ import { Projectiles, type ProjectileOwner, type ProjectileSpec, type Projectile
 import { Pickup } from '../entities/pickup';
 import { Chest } from '../entities/chest';
 import { rollDrops, type Drop, type DropSource } from '../systems/loot';
+import { POWER_VALUES } from '../systems/powers';
+import type { DamageResult } from '../systems/damage';
 import { Rng } from './rng';
 import type { EventBus } from './events';
 
@@ -47,6 +49,8 @@ export class GameWorld {
   private deathAnnounced = false;
   private readonly focus = new THREE.Vector3();
   private readonly playerTargets: ProjectileTarget[] = [this.player];
+  /** Weapon hits since the last Shockwave. */
+  private shockCount = 0;
 
   constructor(
     scene: THREE.Scene,
@@ -126,6 +130,7 @@ export class GameWorld {
       (p, t) => this.onProjectileHit(p, t),
     );
 
+    for (const e of this.enemies) this.tickStatus(e, dt);
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (!e.alive && !e.deathReported) this.onEnemyDeath(e);
@@ -162,16 +167,122 @@ export class GameWorld {
     this.events.emit('shoot', { x: spec.x, z: spec.z, owner: spec.owner });
   }
 
-  /** Deal damage to an enemy from the player; emits hit events. */
-  damageEnemy(e: Enemy, attack: AttackStats, fromX: number, fromZ: number, knockback: number): void {
+  /**
+   * Deal damage to an enemy from the player; emits hit events. `proc` marks a
+   * weapon hit, which can trigger the weapon's powers (power damage itself never does).
+   */
+  damageEnemy(e: Enemy, attack: AttackStats, fromX: number, fromZ: number, knockback: number, proc = false): DamageResult | null {
     const dmg = rollDamage(attack, e.armor, () => this.rng.next());
     const dx = e.pos.x - fromX;
     const dz = e.pos.z - fromZ;
     const len = Math.hypot(dx, dz) || 1;
-    if (e.applyDamage(dmg.amount, (dx / len) * knockback, (dz / len) * knockback)) {
-      this.events.emit('hit', { x: e.pos.x, z: e.pos.z, amount: dmg.amount, crit: dmg.crit, target: 'enemy' });
-      if (this.player.stats.lifeOnHit > 0) this.player.heal(this.player.stats.lifeOnHit);
+    if (!e.applyDamage(dmg.amount, (dx / len) * knockback, (dz / len) * knockback)) return null;
+    this.events.emit('hit', { x: e.pos.x, z: e.pos.z, amount: dmg.amount, crit: dmg.crit, target: 'enemy' });
+    if (this.player.stats.lifeOnHit > 0) this.player.heal(this.player.stats.lifeOnHit);
+    if (proc) this.triggerPowers(e, dmg, attack);
+    return dmg;
+  }
+
+  private triggerPowers(target: Enemy, dmg: DamageResult, attack: AttackStats): void {
+    const { rng, events } = this;
+    const at = { x: target.pos.x, z: target.pos.z };
+    const scaled = (frac: number): AttackStats => ({ ...attack, base: attack.base * frac, critChance: 0 });
+    for (const p of this.player.weaponPowers) {
+      switch (p.id) {
+        case 'ignite': {
+          const v = POWER_VALUES.ignite[p.tier];
+          target.burnTime = v.duration;
+          target.burnDps = Math.max(target.burnDps, attack.base * attack.power * v.dps);
+          break;
+        }
+        case 'frost': {
+          const v = POWER_VALUES.frost[p.tier];
+          target.chillTime = v.duration;
+          // Bosses are only slowed a little and can't be frozen.
+          target.chillSlow = target.isBoss ? Math.max(v.slow, 0.75) : v.slow;
+          if (!target.isBoss && target.alive && target.freezeTime <= 0 && rng.chance(v.freezeChance)) {
+            target.freezeTime = v.freeze;
+            events.emit('power', { id: 'frost', ...at });
+          }
+          break;
+        }
+        case 'chain': {
+          const v = POWER_VALUES.chain[p.tier];
+          if (!rng.chance(v.chance)) break;
+          const points = [{ ...at }];
+          const struck = new Set<Enemy>([target]);
+          let from: Enemy = target;
+          for (let j = 0; j < v.jumps; j++) {
+            let next: Enemy | null = null;
+            let best: number = v.range;
+            for (const e of this.enemies) {
+              if (!e.alive || struck.has(e)) continue;
+              const d = Math.hypot(e.pos.x - from.pos.x, e.pos.z - from.pos.z);
+              if (d < best) {
+                best = d;
+                next = e;
+              }
+            }
+            if (!next) break;
+            struck.add(next);
+            points.push({ x: next.pos.x, z: next.pos.z });
+            this.damageEnemy(next, scaled(v.damage), from.pos.x, from.pos.z, 2);
+            from = next;
+          }
+          if (points.length > 1) events.emit('power', { id: 'chain', ...at, points });
+          break;
+        }
+        case 'shockwave': {
+          const v = POWER_VALUES.shockwave[p.tier];
+          if (++this.shockCount < v.every) break;
+          this.shockCount = 0;
+          events.emit('power', { id: 'shockwave', ...at, radius: v.radius });
+          this.damageArea(at.x, at.z, v.radius, scaled(v.damage), null);
+          break;
+        }
+        case 'detonate': {
+          if (!dmg.crit) break;
+          const v = POWER_VALUES.detonate[p.tier];
+          events.emit('power', { id: 'detonate', ...at, radius: v.radius });
+          this.damageArea(at.x, at.z, v.radius, scaled(v.damage), target);
+          break;
+        }
+      }
     }
+  }
+
+  /** Player-side area damage (powers). Never triggers further powers. */
+  private damageArea(x: number, z: number, radius: number, attack: AttackStats, exclude: Enemy | null): void {
+    for (const e of this.enemies) {
+      if (e === exclude || !e.alive) continue;
+      if (Math.hypot(e.pos.x - x, e.pos.z - z) > radius + e.radius) continue;
+      this.damageEnemy(e, attack, x, z, 6);
+    }
+  }
+
+  /** Burning damage, and periodic cues so status effects are visible. */
+  private tickStatus(e: Enemy, dt: number): void {
+    if (!e.alive) {
+      e.burnTime = e.chillTime = e.freezeTime = 0;
+      return;
+    }
+    if (e.burnTime > 0) {
+      e.burnTime -= dt;
+      e.burnAcc += e.burnDps * dt;
+      // Pay out in whole points, at most every ~0.5s, so numbers stay readable.
+      if (e.burnAcc >= Math.max(1, e.burnDps * 0.5) || (e.burnTime <= 0 && e.burnAcc >= 1)) {
+        const amount = Math.round(e.burnAcc);
+        e.burnAcc -= amount;
+        if (e.applyDamage(amount, 0, 0)) this.events.emit('burnTick', { x: e.pos.x, z: e.pos.z, amount });
+      }
+      if (e.burnTime <= 0) e.burnDps = e.burnAcc = 0;
+    }
+    e.statusFxTimer -= dt;
+    if (e.statusFxTimer > 0) return;
+    const kind = e.freezeTime > 0 ? 'freeze' : e.burnTime > 0 ? 'burn' : e.chillTime > 0 ? 'chill' : null;
+    if (!kind) return;
+    e.statusFxTimer = 0.12;
+    this.events.emit('status', { x: e.pos.x, z: e.pos.z, kind });
   }
 
   private onEnemyDeath(e: Enemy): void {
@@ -211,7 +322,7 @@ export class GameWorld {
       this.events.emit('hit', { ...this.player.pos, amount: dmg.amount, crit: dmg.crit, target: 'player' });
       return true;
     }
-    this.damageEnemy(target as Enemy, p.attack, target.pos.x - p.dirX, target.pos.z - p.dirZ, p.knockback);
+    this.damageEnemy(target as Enemy, p.attack, target.pos.x - p.dirX, target.pos.z - p.dirZ, p.knockback, p.proc);
     return true;
   }
 
@@ -292,6 +403,7 @@ export class GameWorld {
         attack: player.attackStats,
         knockback: w.knockback,
         owner: 'player',
+        proc: true,
       });
       return;
     }
@@ -299,7 +411,7 @@ export class GameWorld {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       if (!inArc(player.pos.x, player.pos.z, player.facing, e.pos.x, e.pos.z, w.range, w.arc, e.radius)) continue;
-      this.damageEnemy(e, player.attackStats, player.pos.x, player.pos.z, w.knockback);
+      this.damageEnemy(e, player.attackStats, player.pos.x, player.pos.z, w.knockback, true);
     }
   }
 

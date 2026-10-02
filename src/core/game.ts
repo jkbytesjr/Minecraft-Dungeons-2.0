@@ -3,14 +3,15 @@ import { CameraRig } from './cameraRig';
 import { Input } from './input';
 import { EventBus } from './events';
 import { GameWorld } from './gameWorld';
-import { FLOORS, generateDungeon, type EnemyKind } from '../world/dungeonGen';
+import { generateDungeon, type EnemyKind } from '../world/dungeonGen';
 import { cutoutUniforms } from '../world/wallCutout';
 import { FpsMeter } from '../ui/fpsMeter';
-import { Hud } from '../ui/hud';
+import { Hud, type RunSummary } from '../ui/hud';
 import { InventoryPanel } from '../ui/inventoryPanel';
-import { RARITY_COLOR, rollItem } from '../systems/loot';
+import { RARITY_COLOR, rollItem, type Rarity } from '../systems/loot';
 import { Rng } from './rng';
 import { createEnemy } from '../entities/enemyFactory';
+import type { Enemy } from '../entities/enemy';
 import { FixedStep } from './fixedStep';
 import { Particles } from '../systems/particles';
 import { Sfx } from '../systems/audio';
@@ -30,6 +31,25 @@ const GIBS: Record<string, [number, number]> = {
   exploder: [0xb4522c, 0xff8a3c],
   boss: [0x2c2b33, 0xa070ff],
 };
+
+const BEST_KEY = 'voxel-dungeon:best-floor';
+
+/** Deepest floor reached on this browser (0 if never played, or storage is blocked). */
+function loadBestFloor(): number {
+  try {
+    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveBestFloor(floor: number): void {
+  try {
+    window.localStorage.setItem(BEST_KEY, String(floor));
+  } catch {
+    // Storage unavailable; the record just won't persist.
+  }
+}
 
 /** Seed from ?seed=123 in the URL, otherwise random. */
 function initialSeed(): number {
@@ -71,7 +91,6 @@ export class Game {
   simTime = 0;
   /** Player shots fired (smoke-test counter). */
   private shotsFired = 0;
-  private finished = false;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -172,6 +191,66 @@ export class Game {
       fx.ring(e.x, e.z, e.radius, 0xff6a2c, 30);
       sfx.explosion();
     });
+    events.on('power', (e) => {
+      switch (e.id) {
+        case 'chain': {
+          // Sparks along each segment of the arc.
+          const pts = e.points ?? [];
+          for (let i = 1; i < pts.length; i++) {
+            const a = pts[i - 1];
+            const b = pts[i];
+            for (let k = 0; k <= 8; k++) {
+              const t = k / 8;
+              const jitter = (Math.random() - 0.5) * 0.35;
+              fx.burst(a.x + (b.x - a.x) * t + jitter, 1 + Math.random() * 0.3, a.z + (b.z - a.z) * t + jitter, {
+                count: 2,
+                color: 0xc8e6ff,
+                color2: 0xffffff,
+                speed: [0.2, 0.8],
+                up: [0, 0.6],
+                gravity: 0,
+                life: [0.15, 0.3],
+                size: [0.06, 0.1],
+                spread: 0.05,
+              });
+            }
+          }
+          sfx.zap();
+          break;
+        }
+        case 'frost':
+          fx.burst(e.x, 0.8, e.z, { count: 26, color: 0xbfe8ff, color2: 0x7fc4ff, speed: [1, 3], up: [1, 4], life: [0.5, 0.9] });
+          sfx.freeze();
+          break;
+        case 'shockwave':
+          fx.ring(e.x, e.z, e.radius ?? 2.5, 0xe8e2c8, 32);
+          rig.shake(0.25, 0.2);
+          sfx.shockwave();
+          break;
+        case 'detonate':
+          fx.burst(e.x, 0.7, e.z, { count: 36, color: 0xff5a3c, color2: 0xffd23f, speed: [2, 5], up: [2, 6], life: [0.3, 0.6] });
+          fx.ring(e.x, e.z, e.radius ?? 2, 0xff8a3c, 24);
+          rig.shake(0.3, 0.2);
+          sfx.detonate();
+          break;
+      }
+    });
+    events.on('burnTick', (e) => nums.spawn(e.x, 1.7, e.z, String(e.amount), 'burn'));
+    events.on('status', (e) => {
+      if (e.kind === 'burn')
+        fx.burst(e.x, 0.6, e.z, { count: 2, color: 0xff8a3c, color2: 0xffd23f, speed: [0.1, 0.5], up: [1.5, 3], gravity: -0.2, life: [0.3, 0.6], spread: 0.35 });
+      else
+        fx.burst(e.x, e.kind === 'freeze' ? 0.9 : 0.4, e.z, {
+          count: e.kind === 'freeze' ? 3 : 1,
+          color: 0xbfe8ff,
+          color2: 0xffffff,
+          speed: [0.1, 0.4],
+          up: [0.2, 1],
+          gravity: 0.3,
+          life: [0.4, 0.7],
+          spread: 0.4,
+        });
+    });
     events.on('teleport', (e) => {
       fx.burst(e.x, 1, e.z, { count: 30, color: 0xb07cff, color2: 0x2a1f3a, speed: [0.5, 2.5], up: [1, 4], gravity: -0.2, life: [0.5, 0.9], spread: 0.5 });
       sfx.dodge();
@@ -185,7 +264,7 @@ export class Game {
       sfx.chest();
     });
     events.on('playerDied', () => {
-      hud.showDeath(true);
+      hud.showDeath(this.runSummary());
       sfx.playerDied();
     });
     events.on('bossEngaged', (e) => {
@@ -193,7 +272,7 @@ export class Game {
       sfx.bossEngaged();
     });
     events.on('bossDefeated', () => {
-      hud.toast(this.depth + 1 < FLOORS ? 'The portal is open!' : 'The way out is open!', 'good');
+      hud.toast('The portal is open!', 'good');
       rig.shake(0.8, 0.6);
       sfx.bossDefeated();
     });
@@ -208,9 +287,7 @@ export class Game {
     this.seed = seed;
     this.world.player.resetProgress();
     this.runTime = 0;
-    this.finished = false;
     this.world.kills = 0;
-    this.hud.showVictory(null);
     this.loadFloor(0);
   }
 
@@ -227,10 +304,10 @@ export class Game {
     this.particles.clear();
     this.damageNumbers.clear();
     this.stepper.reset();
-    this.hud.showDeath(false);
+    this.hud.showDeath(null);
     this.inventory.setOpen(false, this.world.player);
     this.levelUp.hide();
-    this.hud.setFloor(depth + 1, FLOORS, this.seed);
+    this.hud.setFloor(depth + 1, this.seed);
     this.hud.toast(`Floor ${depth + 1}`, 'info');
     this.rig.snapTo(this.focus.set(level.playerStart.x, 0, level.playerStart.z));
   }
@@ -304,7 +381,6 @@ export class Game {
     if (
       (input.wasPressed('Tab') || input.wasPressed('KeyI')) &&
       world.player.alive &&
-      !this.finished &&
       !this.hud.controlsOpen &&
       !this.levelUp.open
     )
@@ -313,14 +389,14 @@ export class Game {
       if (this.inventory.open) this.inventory.setOpen(false, world.player);
       this.hud.toggleControls(false);
     }
-    if (import.meta.env.DEV && input.wasPressed('BracketRight') && !this.paused) this.loadFloor((this.depth + 1) % FLOORS);
+    if (import.meta.env.DEV && input.wasPressed('BracketRight') && !this.paused) this.loadFloor(this.depth + 1);
   }
 
   /** Offer the next queued attribute pick once nothing else is on screen. */
   private updateLevelUp(): void {
     const p = this.world.player;
     const prog = p.progress;
-    if (this.levelUp.open || prog.pendingPicks <= 0 || !p.alive || this.finished || this.inventory.open) return;
+    if (this.levelUp.open || prog.pendingPicks <= 0 || !p.alive || this.inventory.open) return;
     const taken = Object.values(prog.perks).reduce((a, b) => a + (b ?? 0), 0);
     // Seeded by run and pick number, so a seed replays the same offers.
     const choices = rollPerkChoices(new Rng(hashSeed(`${this.seed}:perk:${taken}`)), prog.perks);
@@ -357,40 +433,40 @@ export class Game {
     const fwd = (input.isDown('KeyW') ? 1 : 0) - (input.isDown('KeyS') ? 1 : 0);
     const side = (input.isDown('KeyD') ? 1 : 0) - (input.isDown('KeyA') ? 1 : 0);
     rig.mouseToGround(input.mouseNdc.x, input.mouseNdc.y, 0.8, this.aim);
-    const live = !this.finished;
 
     world.update(
       dt,
       {
-        moveX: live ? f.x * fwd + r.x * side : 0,
-        moveZ: live ? f.z * fwd + r.z * side : 0,
+        moveX: f.x * fwd + r.x * side,
+        moveZ: f.z * fwd + r.z * side,
         aimX: this.aim.x,
         aimZ: this.aim.z,
-        attack: input.mouseDown && live,
-        dodge: pending.dodge && live,
-        slam: pending.slam && live,
-        volley: pending.volley && live,
-        potion: pending.potion && live,
+        attack: input.mouseDown,
+        dodge: pending.dodge,
+        slam: pending.slam,
+        volley: pending.volley,
+        potion: pending.potion,
       },
       rig.camera,
     );
     // Each press is used by exactly one tick.
     pending.dodge = pending.slam = pending.volley = pending.potion = false;
 
-    if (world.player.alive && live) this.runTime += dt;
-    if (world.portalReached && live) {
+    if (world.player.alive) this.runTime += dt;
+    if (world.portalReached) {
+      // Floors go on forever: every portal leads one floor deeper.
       this.sfx.portal();
-      this.advanceFloor();
+      this.loadFloor(this.depth + 1);
     }
   }
 
-  private advanceFloor(): void {
-    if (this.depth + 1 < FLOORS) {
-      this.loadFloor(this.depth + 1);
-      return;
-    }
-    this.finished = true;
-    this.hud.showVictory({ seed: this.seed, time: this.runTime, kills: this.world.kills });
+  /** Summary for the death screen; also records the deepest floor reached. */
+  private runSummary(): RunSummary {
+    const floor = this.depth + 1;
+    const prev = loadBestFloor();
+    const newBest = floor > prev;
+    if (newBest) saveBestFloor(floor);
+    return { seed: this.seed, floor, time: this.runTime, kills: this.world.kills, best: Math.max(prev, floor), newBest };
   }
 
   private onResize = (): void => {
@@ -470,9 +546,12 @@ export class Game {
   }
 
   /** Give the player an item (smoke-test helper). */
-  debugGive(kind: 'weapon' | 'armor', rarity: 'common' | 'rare' | 'unique'): void {
+  debugGive(kind: 'weapon' | 'armor', rarity: Rarity): void {
     const rng = new Rng(Math.floor(Math.random() * 1e9));
-    this.world.player.inventory.add(rollItem(rng, this.depth, { kind, minRarity: rarity === 'common' ? 'common' : rarity, uniqueBoost: rarity === 'unique' ? 1e6 : 0 }));
+    let item = rollItem(rng, this.depth, { kind, minRarity: rarity, uniqueBoost: 50 });
+    // Reroll until the rarity is exact (minRarity only sets a floor).
+    for (let i = 0; i < 500 && item.rarity !== rarity; i++) item = rollItem(rng, this.depth, { kind, minRarity: rarity, uniqueBoost: 50 });
+    this.world.player.inventory.add(item);
   }
 
   get worldState(): GameWorld {
@@ -500,7 +579,7 @@ export class Game {
     bossEngaged: boolean;
     bossKind: string | null;
     depth: number;
-    floors: number;
+    bestFloor: number;
     levelUpOpen: boolean;
   } {
     return {
@@ -510,9 +589,14 @@ export class Game {
       bossEngaged: !!this.world.boss?.engaged,
       bossKind: this.world.boss?.bossKind ?? null,
       depth: this.depth,
-      floors: FLOORS,
+      bestFloor: loadBestFloor(),
       levelUpOpen: this.levelUp.open,
     };
+  }
+
+  /** A fresh enemy for the current floor (smoke-test helper; add it with worldState.spawn). */
+  debugCreateEnemy(kind: EnemyKind): Enemy {
+    return createEnemy(kind, this.depth);
   }
 
   /** Screen-space pixel position of a world point (for aiming the mouse in tests). */
