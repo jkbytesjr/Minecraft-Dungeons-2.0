@@ -8,6 +8,8 @@ Nothing is pre-made: dungeon layouts, character models, loot and sound effects a
 ![three.js](https://img.shields.io/badge/three.js-000000?logo=threedotjs&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
 
+**[▶ Play in your browser](https://jkbytesjr.github.io/Pixel-Bastion/)**
+
 ![Fighting a pack of monsters on a raised altar in the Overgrown Ruins](docs/screenshots/combat.png)
 
 ## Features
@@ -159,5 +161,5 @@ docs/        README screenshots
 - **Grid collision.** Characters are circles that slide along wall tiles; there's no physics engine.
 - **Fixed timestep.** The simulation runs at 60 Hz regardless of screen refresh rate. The camera, particles, damage numbers and minimap update every rendered frame.
 - **Event-driven effects.** The simulation emits events (`hit`, `enemyDied`, `explosion`, ...). Sound, particles, damage numbers, screen shake and messages listen for them and never change game state.
-- **Cheap rendering.** Level geometry (floors, walls, rooftop, props) is one instanced mesh per kind, character models merge their boxes into one mesh per body part, and all particles share a single pooled instanced mesh. A small pool of point lights follows the torches nearest the player. If the frame rate stays below 45, the renderer lowers its resolution.
+- **Cheap rendering.** Level geometry is built from instanced boxes, split into 16×16-tile chunks so anything off screen is skipped. Character models merge their boxes into one mesh per body part, and all particles share a single pooled instanced mesh. Small pools of point lights follow the torches and glowing spots nearest the player. If the frame rate stays low, the renderer lowers its resolution and then turns off shadows.
 - **Synthesised audio.** Sound effects are built from Web Audio oscillators and filtered noise. Audio starts on the first key press or click, as browsers require.
