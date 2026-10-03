@@ -11,7 +11,11 @@ export type PerkId =
   | 'toughness'
   | 'vampirism'
   | 'alchemy'
-  | 'focus';
+  | 'focus'
+  | 'ascendance';
+
+/** Rank every attribute is set to by the admin-only Ascendance. */
+export const ASCENDED_RANK = 100;
 
 export interface PerkDef {
   id: PerkId;
@@ -21,6 +25,8 @@ export interface PerkDef {
   /** Most times it can be picked in one run. */
   max: number;
   color: string;
+  /** Only offered to a logged-in admin. */
+  adminOnly?: boolean;
 }
 
 export const PERKS: Record<PerkId, PerkDef> = {
@@ -34,9 +40,18 @@ export const PERKS: Record<PerkId, PerkDef> = {
   vampirism: { id: 'vampirism', name: 'Vampirism', description: '+1 life on hit', max: 5, color: '#c0262b' },
   alchemy: { id: 'alchemy', name: 'Alchemy', description: '+1 potion now, potions heal 10% more', max: 3, color: '#6fe07a' },
   focus: { id: 'focus', name: 'Focus', description: 'Abilities and dodge recharge 12% faster', max: 4, color: '#b07cff' },
+  ascendance: {
+    id: 'ascendance',
+    name: 'Ascendance',
+    description: `Every attribute jumps to rank ${ASCENDED_RANK}`,
+    max: 1,
+    color: '#29ffe0',
+    adminOnly: true,
+  },
 };
 
-export const PERK_IDS = Object.keys(PERKS) as PerkId[];
+/** The attributes anyone can pick (Ascendance is admin-only). */
+export const PERK_IDS = (Object.keys(PERKS) as PerkId[]).filter((id) => !PERKS[id].adminOnly);
 
 export type PerkCounts = Partial<Record<PerkId, number>>;
 
@@ -70,8 +85,23 @@ export function perkBonuses(perks: PerkCounts): PerkBonuses {
   };
 }
 
-/** `count` distinct perks that aren't maxed out yet. */
-export function rollPerkChoices(rng: Rng, owned: PerkCounts, count = 3): PerkId[] {
+/**
+ * `count` distinct perks that aren't maxed out yet. An admin who hasn't
+ * ascended always gets Ascendance as the first card.
+ */
+export function rollPerkChoices(rng: Rng, owned: PerkCounts, count = 3, admin = false): PerkId[] {
   const open = PERK_IDS.filter((id) => (owned[id] ?? 0) < PERKS[id].max);
-  return rng.shuffle(open).slice(0, count);
+  const picks = rng.shuffle(open).slice(0, count);
+  if (admin && !owned.ascendance) return ['ascendance', ...picks.slice(0, count - 1)];
+  return picks;
+}
+
+/** Take a pick: Ascendance sets every attribute to ASCENDED_RANK, anything else adds one rank. */
+export function applyPerk(perks: PerkCounts, id: PerkId): void {
+  if (id === 'ascendance') {
+    for (const p of PERK_IDS) perks[p] = Math.max(perks[p] ?? 0, ASCENDED_RANK);
+    perks.ascendance = 1;
+    return;
+  }
+  perks[id] = (perks[id] ?? 0) + 1;
 }

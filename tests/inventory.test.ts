@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BAG_SIZE, Inventory, MAX_POTIONS, computeStats } from '../src/systems/inventory';
-import { addXp, newProgress, xpToNext } from '../src/systems/progression';
+import { addXp, newProgress, xpForKill, xpToNext } from '../src/systems/progression';
 import { PERKS, PERK_IDS, rollPerkChoices } from '../src/systems/perks';
 import { Rng } from '../src/core/rng';
 import type { ArmorItem, WeaponItem } from '../src/systems/loot';
@@ -75,6 +75,13 @@ describe('computeStats', () => {
 describe('progression', () => {
   it('xp requirement grows with level', () => {
     expect(xpToNext(2)).toBeGreaterThan(xpToNext(1));
+  });
+
+  it('levels come faster, not slower, the deeper you go', () => {
+    // Kills needed for the next level, at the level you'd typically have on that floor.
+    const grunts = (level: number, depth: number) => xpToNext(level) / xpForKill(12, depth);
+    expect(grunts(12, 6)).toBeLessThan(grunts(4, 1));
+    expect(grunts(25, 15)).toBeLessThan(grunts(12, 6));
   });
 
   it('carries leftover xp across multiple level-ups', () => {

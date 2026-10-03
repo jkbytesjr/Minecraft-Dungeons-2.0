@@ -1,3 +1,4 @@
+import { groundAt } from '../world/terrain';
 import * as THREE from 'three';
 import type { TileGrid } from '../world/grid';
 import type { AttackStats } from './damage';
@@ -20,6 +21,10 @@ export interface ProjectileSpec {
   orb?: boolean;
   /** Player weapon shot: hits can trigger weapon powers. */
   proc?: boolean;
+  /** Render as a thrown spear (shaft plus head) instead of an arrow. */
+  spear?: { shaft: number; head: number };
+  /** Leave a trail of sparks in this colour (drawn by the game from `trailPoints`). */
+  trail?: number;
 }
 
 interface Projectile extends ProjectileSpec {
@@ -35,6 +40,8 @@ export interface ProjectileTarget {
 }
 
 const MAX = 192;
+/** Spears draw as two instances (shaft and head). */
+const MAX_INSTANCES = MAX * 2;
 const HEIGHT = 1.0;
 
 /** Pooled arrows rendered with a single InstancedMesh. */
@@ -47,13 +54,16 @@ export class Projectiles {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3(1, 1, 1);
   private readonly orbScale = new THREE.Vector3(3.4, 3.4, 0.42);
+  private readonly shaftScale = new THREE.Vector3(1.05, 1.05, 2.3);
+  private readonly headScale = new THREE.Vector3(2.3, 1.2, 0.5);
+  private readonly fwd = new THREE.Vector3();
   private readonly c = new THREE.Color();
   private readonly playerColor = new THREE.Color(0xf2e6c8);
   private readonly enemyColor = new THREE.Color(0xff5a3c);
 
   constructor() {
     const geo = new THREE.BoxGeometry(0.07, 0.07, 0.65);
-    this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX);
+    this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_INSTANCES);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
     // Allocate the colour buffer up front so the shader never recompiles.
@@ -64,6 +74,11 @@ export class Projectiles {
     if (this.list.length >= MAX) return;
     const len = Math.hypot(spec.dirX, spec.dirZ) || 1;
     this.list.push({ ...spec, dirX: spec.dirX / len, dirZ: spec.dirZ / len, life: spec.range / spec.speed, alive: true });
+  }
+
+  /** Projectiles that leave a trail, for the game to draw sparks behind. */
+  *trailPoints(): Generator<{ x: number; z: number; color: number }> {
+    for (const p of this.list) if (p.trail !== undefined) yield { x: p.x, z: p.z, color: p.trail };
   }
 
   clear(): void {
@@ -105,14 +120,28 @@ export class Projectiles {
     }
     for (let i = this.list.length - 1; i >= 0; i--) if (!this.list[i].alive) this.list.splice(i, 1);
 
-    this.list.forEach((p, i) => {
+    let n = 0;
+    for (const p of this.list) {
       this.q.setFromAxisAngle(this.up, Math.atan2(p.dirX, p.dirZ));
-      this.m.compose(this.p.set(p.x, HEIGHT, p.z), this.q, p.orb ? this.orbScale : this.s);
-      this.mesh.setMatrixAt(i, this.m);
-      if (p.color !== undefined) this.mesh.setColorAt(i, this.c.setHex(p.color));
-      else this.mesh.setColorAt(i, p.owner === 'player' ? this.playerColor : this.enemyColor);
-    });
-    this.mesh.count = this.list.length;
+      const y = HEIGHT + groundAt(p.x, p.z);
+      if (p.spear) {
+        // Shaft trailing behind the point, then the head at the front.
+        this.fwd.set(p.dirX, 0, p.dirZ);
+        this.p.set(p.x, y, p.z).addScaledVector(this.fwd, -0.55);
+        this.mesh.setMatrixAt(n, this.m.compose(this.p, this.q, this.shaftScale));
+        this.mesh.setColorAt(n++, this.c.setHex(p.spear.shaft));
+        this.p.set(p.x, y, p.z).addScaledVector(this.fwd, 0.28);
+        this.mesh.setMatrixAt(n, this.m.compose(this.p, this.q, this.headScale));
+        this.mesh.setColorAt(n++, this.c.setHex(p.spear.head));
+        continue;
+      }
+      this.m.compose(this.p.set(p.x, y, p.z), this.q, p.orb ? this.orbScale : this.s);
+      this.mesh.setMatrixAt(n, this.m);
+      if (p.color !== undefined) this.mesh.setColorAt(n, this.c.setHex(p.color));
+      else this.mesh.setColorAt(n, p.owner === 'player' ? this.playerColor : this.enemyColor);
+      n++;
+    }
+    this.mesh.count = n;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }

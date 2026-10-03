@@ -5,7 +5,7 @@ import { MOD_RANGES, RARITY_MULT, rollDrops, rollItem, rollRarity, type Item } f
 describe('rollRarity', () => {
   it('follows roughly 70/25/5 weights, with mythics under 1% on floor 1', () => {
     const rng = new Rng(11);
-    const counts = { common: 0, rare: 0, unique: 0, mythic: 0 };
+    const counts = { common: 0, rare: 0, unique: 0, mythic: 0, admin: 0 };
     const N = 20000;
     for (let i = 0; i < N; i++) counts[rollRarity(rng)]++;
     expect(counts.common / N).toBeCloseTo(0.7, 1);
@@ -14,6 +14,7 @@ describe('rollRarity', () => {
     expect(counts.unique / N).toBeLessThan(0.07);
     expect(counts.mythic).toBeGreaterThan(0);
     expect(counts.mythic / N).toBeLessThan(0.01);
+    expect(counts.admin).toBe(0);
   });
 
   it('makes mythics more common on deeper floors and from bosses', () => {

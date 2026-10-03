@@ -44,6 +44,25 @@ export class Pyromancer extends Boss {
       voxelBox([0.08, 0.18, 0.08], 0xffd23f, [0, 1.74, 0.18]),
       voxelBox([0.56, 0.4, 0.36], 0x5a160f, [0, 0.45, 0]),
     );
+    // Glowing runes down the robe and flaming shoulders.
+    const rune = new THREE.MeshBasicMaterial({ color: 0xff9a3c });
+    for (const [x, y] of [
+      [0, 0.95],
+      [-0.12, 0.6],
+      [0.12, 0.4],
+      [0, 0.3],
+    ]) {
+      const r = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.02), rune);
+      r.position.set(x, y, 0.19);
+      inner.add(r);
+    }
+    for (const arm of [this.model.armL, this.model.armR]) {
+      const flame = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.16), new THREE.MeshBasicMaterial({ color: 0xff6a1a }));
+      flame.position.set(0, 0.1, 0);
+      arm.add(voxelBox([0.26, 0.1, 0.28], 0x3a0f0a, [0, -0.02, 0]), flame);
+    }
+    // Embers circling him.
+    this.addOrbiters(4, 1.3, 1.6, () => new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), new THREE.MeshBasicMaterial({ color: 0xffb347 })));
     // Staff with a glowing ember.
     this.orb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial({ color: 0xffb347 }));
     this.orb.position.set(0, -0.5, 0.95);

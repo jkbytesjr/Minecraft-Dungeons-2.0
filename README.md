@@ -1,4 +1,4 @@
-# Voxel Dungeon
+# Pixel Bastion
 
 A dungeon crawler that runs in the browser, built entirely from coloured cubes. Descend through endless procedurally generated floors, collect loot with special powers, choose how your character grows, and see how deep you can get.
 
@@ -8,23 +8,35 @@ Nothing is pre-made: dungeon layouts, character models, loot and sound effects a
 ![three.js](https://img.shields.io/badge/three.js-000000?logo=threedotjs&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
 
-![Fighting a pack of grunts](docs/screenshots/combat.png)
+![Fighting a pack of monsters on a raised altar in the Overgrown Ruins](docs/screenshots/combat.png)
 
 ## Features
 
-- **Endless procedurally generated floors**: rooms and corridors with a cycling colour theme, getting harder as you go. A seed always rebuilds the same dungeon, and the game remembers your deepest floor.
+- **Endless procedurally generated floors**: arena rooms and wide corridors that get harder as you go. A seed always rebuilds the same dungeon, and the game remembers your deepest floor.
 - **Four bosses** with telegraphed attacks and an enraged phase below half health. They return with grander titles every four floors.
-- **Real-time combat**: mouse-aimed melee and bow attacks, a dodge roll with brief invulnerability, a ground slam, an arrow volley and health potions.
+- **Real-time combat**: mouse-aimed melee and bow attacks, a dodge roll with brief invulnerability, a ground slam, a spear volley and health potions.
 - **Loot** in four rarities (common, rare, unique, mythic) with random stat modifiers. Unique and mythic weapons carry special powers like Chain Lightning and Ignite. Your equipped armor and weapon show on your character.
-- **Level-up choices**: each level pauses the game and offers three random attributes to pick from.
-- **Game feel**: particles, floating damage numbers, screen shake, a fog-of-war minimap, and sound effects synthesised in the browser.
+- **Level-up choices**: each level offers three random attributes to pick from. The choice waits until you're out of combat (or press L), so it never interrupts a fight. Levels come faster the deeper you go.
+- **Tutorial**: a short six-room walkthrough of moving, fighting, dodging, abilities, loot and a boss. New runs offer it first.
+- **Character creator**: pick skin, hair style and colour, beard, eyes, tunic, scarf, trousers and boots, with a live preview.
+- **Mods**: JSON files that tweak the rules, add items to the loot tables and add new enemy variants. Switch them on and off from the title screen.
+- **Title screen and saves**: continue a saved run, start a new one or play a specific seed. The game autosaves at every floor, and Esc lets you save and quit.
+- **Isometric voxel world**: a fixed 45° isometric camera over open arena rooms joined by wide corridors (5 to 7 tiles). Rooms have raised altars, stepped ledges and sunken pits with block staircases. Floors blend cobblestone, cracked tiles, slate, sandstone and terracotta, with inlaid mosaics and worn edges. Walls are block masonry with cornices, battlements, chiselled pillars, alcoves with iron gates, and arches over doorways. Rooms sit on layered cliffs or floating islands above deep chasms.
+- **Six biomes in changing moods**: Ancient Temple, Overgrown Ruins, Dark Keep, Sky Bastion, Crystal Catacombs and Garden Courtyard, each lit by day, dusk, mist, torchlight, arcane or ember moods, so no two floors of a run look the same. Crates, barrels, urns and planters fill room corners. Mana crystals, magic circles and water channels glow and cast coloured light, sconces flicker, the sun casts long shadows, and bloom and haze add atmosphere.
+- **Detailed characters**: faces, outfits and visible gear, and distinct enemy and boss designs.
+- **Animation**: breathing, leaning into runs, wind-ups and follow-through on every attack, hit flinches, squash and stretch, a sword combo, and bodies that topple and bounce when they die.
+- **Game feel**: particles, floating damage numbers, screen shake, a slow-motion "boss defeated" finale, a fog-of-war minimap, and sound effects synthesised in the browser.
 
 ## Screenshots
 
 | | |
 | --- | --- |
-| ![The Cinder King marks bomb spots around the player](docs/screenshots/boss-cinder-king.png) | ![Vesh the Thornhuntress telegraphs an arrow fan](docs/screenshots/boss-huntress.png) |
-| *The Cinder King marks where his bombs will land.* | *Vesh the Thornhuntress telegraphs an arrow fan.* |
+| ![The Cinder King in a Sky Bastion arena](docs/screenshots/boss-cinder-king.png) | ![Vesh the Thornhuntress in a Garden Courtyard arena](docs/screenshots/boss-huntress.png) |
+| *The Cinder King, on a mosaic floor in the Sky Bastion.* | *Vesh the Thornhuntress, in the Garden Courtyard.* |
+| ![Ancient Temple in daylight](docs/screenshots/world-temple.png) | ![Dark Keep by torchlight](docs/screenshots/world-keep.png) |
+| *Ancient Temple: sandstone, terracotta and long daylight shadows.* | *Dark Keep: basalt, violet shadow and a glowing magic circle.* |
+| ![Overgrown Ruins](docs/screenshots/world-ruins.png) | ![Sky Bastion](docs/screenshots/world-sky.png) |
+| *Overgrown Ruins: mossy masonry, ivy and wooden railings.* | *Sky Bastion: white stone and terracotta on floating islands.* |
 | ![Inventory with an item comparison tooltip](docs/screenshots/inventory.png) | ![Level-up screen offering three attributes](docs/screenshots/level-up.png) |
 | *Hover an item to compare it with your gear.* | *Pick one of three attributes on each level-up.* |
 
@@ -37,9 +49,13 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173. Click in the game window or press any key to enable sound.
+Then open http://localhost:5173. The title screen lets you start a new run, continue a saved one, type in a seed, customise your character or manage mods. A new run asks whether you want the tutorial first. You can turn that question off, and the tutorial stays available from the title screen. Sound starts after your first click or key press.
 
-To play a specific dungeon, add a seed to the URL, for example `http://localhost:5173/?seed=12345`. The same seed always produces the same floors, bosses and level-up offers.
+The same seed always produces the same floors, bosses and level-up offers. You can also skip the title screen and jump straight into a seed with a URL like `http://localhost:5173/?seed=12345`.
+
+**Mods.** Mods are JSON files in `public/mods/`, listed in `public/mods/index.json`. You can also import one from *Mods* on the title screen. A mod can change rules such as XP, drop rates, enemy health and your damage. It can also add weapons and armor to the loot tables, and add recoloured, resized or tougher variants of existing enemies. Mods are plain data and never run code. `public/mods/example-mod.json` shows every option and ships switched off. The full format is in [`public/mods/README.md`](public/mods/README.md).
+
+**Saving.** The game autosaves at the start of every floor. Press Esc and choose *Save & quit to menu* to stop playing, then pick *Continue* on the title screen. You resume at the start of the saved floor with your level, attributes and gear. Saves live in your browser, and dying deletes the save.
 
 To make a production build:
 
@@ -54,25 +70,37 @@ npm run preview    # serve the build locally
 
 | Key | Action |
 | --- | --- |
-| W A S D | Move |
+| W A S D | Move. By default W walks toward the mouse, S backs away and A/D circle around it. Switch to screen-relative movement on the title screen. |
 | Mouse | Aim |
 | Left click | Attack (hold to keep attacking) |
 | Space | Dodge roll, with brief invulnerability |
 | Q | Ground slam (area damage) |
-| E | Arrow volley (7-arrow spread) |
+| E | Spear volley (7 spears in a spread) |
 | 1 | Drink a health potion |
 | 1 / 2 / 3 | Pick an attribute on the level-up screen |
+| L | Choose a level-up attribute now, without waiting for the fight to end |
 | Tab / I | Inventory (pauses the game) |
 | H | Controls overlay (pauses the game) |
+| Esc | Pause menu (resume, controls, save & quit) |
 | M | Mute / unmute |
 | F3 | FPS and draw-call meter |
 | R | Restart after death |
 
 ## How a run works
 
-Each floor is a set of rooms joined by corridors, ending in a boss arena. Killing the boss opens a portal to the next floor. The floors never end: enemies keep getting tougher, and the run is over when you die. The death screen shows how deep you got and your best floor so far.
+Each floor is a set of rooms joined by corridors, ending in a boss arena. Killing the boss triggers a slow-motion finale and opens a portal to the next floor. The floors never end: enemies keep getting tougher, and the run is over when you die. The death screen shows how deep you got and your best floor so far.
 
-**Enemies.** Grunts close in for melee, archers keep their distance and shoot, and exploders rush you and detonate.
+**Enemies.** New kinds appear as you go deeper, and any of them can spawn as a gold-ringed **elite** with much more health, harder hits and a guaranteed good drop. Elites get more common the deeper you go.
+
+| Enemy | From floor | How it fights |
+| --- | --- | --- |
+| Grunt (orc) | 1 | Charges in and slams with a club. |
+| Archer | 1 | Keeps its distance, strafes and shoots. |
+| Exploder (goblin) | 1 | Sprints at you and detonates its powder keg. |
+| Spider | 1 | Hunts in packs of three, crouches and lunges. |
+| Shieldbearer | 2 | Blocks most damage from the front and turns slowly, so flank it. Open while recovering from a shield bash. |
+| Shaman | 3 | Hangs back, heals nearby monsters and lobs poison bolts. Kill it first. |
+| Wraith | 4 | Floating ghost that blinks in behind you and slashes. |
 
 **Bosses.** Every big attack is marked on the ground in red before it lands.
 
@@ -97,7 +125,7 @@ Floor 1 is always the Colossus, and floors 2–4 bring the other three in an ord
 | Shockwave | Every few hits releases a blast around the target. |
 | Detonate | Critical hits explode, damaging enemies around the target. |
 
-**Leveling.** Kills give XP. Each level-up fully heals you and lets you choose one of three random attributes, such as max HP, damage, crit chance, attack speed or faster cooldowns. Each attribute has a maximum rank.
+**Leveling.** Kills give XP, and deeper floors give much more, so each level takes fewer kills the further you get. Each level-up fully heals you and lets you choose one of three random attributes, such as max HP, damage, crit chance, attack speed or faster cooldowns. Each attribute has a maximum rank.
 
 ## Development
 
@@ -106,18 +134,19 @@ npm run lint && npm run typecheck && npm test   # run before every commit
 npm run smoke                                    # headless browser test
 ```
 
-- **Unit tests** (`npm test`, Vitest) cover the pure game logic: dungeon generation and boss order, the collision grid, damage formulas, loot rolls and weapon powers, inventory, leveling and attribute picks, pathfinding, the fixed-step clock and minimap exploration.
-- **Smoke test** (`npm run smoke`) starts the dev server and plays the game in headless Chromium with Playwright. It checks movement, combat, every enemy type, ten floors and their bosses, the death summary, loot, every weapon power, inventory, abilities, level-ups, effects and the HUD. It fails on any console error or warning, and saves screenshots to `smoke-out/`. Install the browser once with `npx playwright install chromium`.
+- **Unit tests** (`npm test`, Vitest) cover the pure game logic: dungeon generation and boss order, the collision grid, damage formulas, loot rolls and weapon powers, inventory, leveling pace and attribute picks, save validation, mod validation and merging, character looks, the tutorial layout, pathfinding, the fixed-step clock and minimap exploration.
+- **Smoke test** (`npm run smoke`) starts the dev server and plays the game in headless Chromium with Playwright. It checks movement (including walking toward the mouse), combat, every enemy type (including spider lunges, shield blocking, shaman healing and wraith blinks), elites and summons, ten floors and their bosses, the boss-defeated banner, the death summary, loot, every weapon power, inventory, abilities, level-ups, the pause menu, saving and continuing, the title screen, the character creator, the mods screen, the tutorial, effects and the HUD. It fails on any console error or warning, and saves screenshots to `smoke-out/`. Install the browser once with `npx playwright install chromium`.
 
 ### Project layout
 
 ```
 src/
   core/      Game loop, fixed-step clock, input, seeded RNG, event bus, camera rig
-  world/     Dungeon generator, tile grid and collision, voxel level builder, torches, fog of war
+  world/     Dungeon generator, tutorial floor, tile grid and collision, voxel level builder, torches, fog of war
   entities/  Player and gear models, enemies, bosses (bosses/), chests, pickups, portal
-  systems/   Damage, loot, weapon powers, inventory, leveling, attributes, projectiles, pathfinding, particles, audio
-  ui/        HUD, minimap, inventory, level-up screen, damage numbers, FPS meter
+  systems/   Damage, loot, weapon powers, inventory, leveling, attributes, saves, mods, character looks, projectiles, pathfinding, particles, audio
+  ui/        Title and pause menus, character creator, mods screen, HUD, minimap, inventory, level-up screen, damage numbers, FPS meter
+public/mods/ Mod files, the example mod and the mod format guide
 tests/       Vitest unit tests
 scripts/     Playwright smoke test
 docs/        README screenshots
@@ -130,5 +159,5 @@ docs/        README screenshots
 - **Grid collision.** Characters are circles that slide along wall tiles; there's no physics engine.
 - **Fixed timestep.** The simulation runs at 60 Hz regardless of screen refresh rate. The camera, particles, damage numbers and minimap update every rendered frame.
 - **Event-driven effects.** The simulation emits events (`hit`, `enemyDied`, `explosion`, ...). Sound, particles, damage numbers, screen shake and messages listen for them and never change game state.
-- **Cheap rendering.** Level geometry is one instanced mesh per material, and all particles share a single pooled instanced mesh. A small pool of point lights follows the torches nearest the player. If the frame rate stays below 45, the renderer lowers its resolution.
+- **Cheap rendering.** Level geometry (floors, walls, rooftop, props) is one instanced mesh per kind, character models merge their boxes into one mesh per body part, and all particles share a single pooled instanced mesh. A small pool of point lights follows the torches nearest the player. If the frame rate stays below 45, the renderer lowers its resolution.
 - **Synthesised audio.** Sound effects are built from Web Audio oscillators and filtered noise. Audio starts on the first key press or click, as browsers require.

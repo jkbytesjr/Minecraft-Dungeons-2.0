@@ -1,0 +1,5 @@
+{
+  "mods": [
+    { "file": "example-mod.json", "enabled": false }
+  ]
+}

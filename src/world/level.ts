@@ -13,6 +13,12 @@ export interface Level {
   playerStart: { x: number; z: number };
   /** Palette index for the voxel builder. */
   theme: number;
+  /**
+   * Visual floor height per tile (row-major, width x height), for raised altars,
+   * ledges and sunken pits. Presentation only: collision stays flat. Neighbouring
+   * walkable tiles differ by at most one step (STEP).
+   */
+  heights?: Float32Array;
 }
 
 /** Place torches on walls that face a floor tile, roughly every `spacing` tiles. */

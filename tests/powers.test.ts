@@ -54,7 +54,7 @@ describe('weapon drops', () => {
         continue;
       }
       const n = item.powers?.length ?? 0;
-      expect(n).toBe({ common: 0, rare: 0, unique: 1, mythic: 2 }[item.rarity]);
+      expect(n).toBe({ common: 0, rare: 0, unique: 1, mythic: 2, admin: 5 }[item.rarity]);
     }
   });
 });

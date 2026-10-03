@@ -1,8 +1,9 @@
+import { groundAt } from '../world/terrain';
 import * as THREE from 'three';
 import { voxelBox } from './voxelModel';
 import type { Drop, Rarity } from '../systems/loot';
 
-const BEAM_COLOR: Record<Rarity, number> = { common: 0xdedede, rare: 0x4aa0ff, unique: 0xff9020, mythic: 0xff2d5a };
+const BEAM_COLOR: Record<Rarity, number> = { common: 0xdedede, rare: 0x4aa0ff, unique: 0xff9020, mythic: 0xff2d5a, admin: 0x29ffe0 };
 const beamGeo = new THREE.BoxGeometry(0.14, 3, 0.14);
 const beamMats = new Map<Rarity, THREE.MeshBasicMaterial>();
 
@@ -96,7 +97,7 @@ export class Pickup {
     const decay = Math.exp(-6 * dt);
     this.vel.x *= decay;
     this.vel.z *= decay;
-    this.group.position.set(this.pos.x, 0, this.pos.z);
+    this.group.position.set(this.pos.x, groundAt(this.pos.x, this.pos.z), this.pos.z);
     // Pop up out of the source, then settle into a gentle bob.
     const pop = Math.max(0, 1 - this.age / 0.45);
     this.icon.position.y = 0.55 + Math.sin(this.time * 3) * 0.1 + Math.sin(pop * Math.PI) * 0.8;

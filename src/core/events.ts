@@ -9,10 +9,20 @@ export interface GameEvents {
   enemyDied: { x: number; z: number; kind: string; xp: number };
   explosion: { x: number; z: number; radius: number };
   bossEngaged: { name: string };
-  bossDefeated: { x: number; z: number };
-  slam: { x: number; z: number; radius: number };
-  dodge: { x: number; z: number };
+  bossDefeated: { x: number; z: number; name: string };
+  /** `admin`: thrown in admin armor, which gets its own effects. */
+  slam: { x: number; z: number; radius: number; admin?: boolean };
+  /** Spear volley thrown (E). */
+  volley: { x: number; z: number; facing: number; admin: boolean };
+  /** `admin`: an admin-armor dash, which gets its own effects. */
+  dodge: { x: number; z: number; admin?: boolean };
   teleport: { x: number; z: number };
+  /** A shield soaked up most of a hit. */
+  blocked: { x: number; z: number };
+  /** A shaman healed some monsters. */
+  enemyHeal: { x: number; z: number; targets: { x: number; z: number; amount: number }[] };
+  /** A summoned monster is climbing out of the floor. */
+  rise: { x: number; z: number };
   /** A weapon power went off. `points` is the chain-lightning path. */
   power: { id: PowerId; x: number; z: number; radius?: number; points?: { x: number; z: number }[] };
   /** Damage-over-time tick (burning). */

@@ -844,3 +844,841 @@ body {
   font-weight: 700;
   opacity: 1;
 }
+
+/* ---- Title screen, pause menu, boss-defeated banner ---- */
+
+/* Title screen hides the gameplay HUD but keeps menus and the controls panel. */
+#hud.hud-off > :not(.main-menu):not(.controls-panel):not(.admin-login):not(.admin-console):not(.char-panel):not(.mods-panel):not(.tutorial-prompt) {
+  display: none !important;
+}
+
+.controls-panel {
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.screen .row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.main-menu,
+.pause-menu {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: auto;
+  overflow-y: auto;
+}
+
+.main-menu {
+  background:
+    radial-gradient(ellipse at 50% 35%, transparent 20%, rgb(6 4 10 / 0.75) 75%),
+    linear-gradient(180deg, rgb(6 4 10 / 0.2), rgb(6 4 10 / 0.6));
+}
+
+.pause-menu {
+  background: rgb(6 4 10 / 0.6);
+  backdrop-filter: blur(3px);
+}
+
+.menu-panel {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  animation: menu-in 0.4s ease-out;
+}
+
+.menu-panel.small {
+  width: min(360px, 100%);
+  padding: 22px;
+  background: rgb(18 15 24 / 0.95);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.6);
+}
+
+.menu-panel h2 {
+  margin: 0 0 4px;
+  text-align: center;
+  font-size: 26px;
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+/* Chunky stacked-block title. */
+.menu-title {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 0.92;
+  font-size: clamp(44px, 11vw, 92px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #ffd23f;
+  text-shadow:
+    0 1px 0 #e0a92a,
+    0 2px 0 #c98f1f,
+    0 3px 0 #b07a17,
+    0 4px 0 #8f6111,
+    0 5px 0 #6e4a0c,
+    0 7px 0 #3a2706,
+    0 12px 24px rgb(0 0 0 / 0.8);
+}
+
+.menu-title span:last-child {
+  color: #f2ece0;
+  text-shadow:
+    0 1px 0 #cfc6b6,
+    0 2px 0 #b3a994,
+    0 3px 0 #978c76,
+    0 4px 0 #7a6f5a,
+    0 5px 0 #5c5341,
+    0 7px 0 #2c271d,
+    0 12px 24px rgb(0 0 0 / 0.8);
+}
+
+.menu-tag {
+  margin: 0 0 6px;
+  text-align: center;
+  opacity: 0.75;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 13px;
+}
+
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.menu-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 12px 16px;
+  font: inherit;
+  text-align: left;
+  color: #eee;
+  cursor: pointer;
+  background: rgb(24 20 32 / 0.92);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 10px;
+  transition:
+    transform 0.1s,
+    border-color 0.1s,
+    background 0.1s;
+}
+
+.menu-btn:hover,
+.menu-btn:focus-visible {
+  outline: none;
+  transform: translateX(3px);
+  border-color: #ffd23f;
+  background: rgb(36 30 46 / 0.95);
+}
+
+.menu-btn.menu-primary {
+  background: linear-gradient(180deg, #e8b83c, #b98516);
+  border-color: #ffe08a;
+  color: #1b130b;
+}
+
+.menu-btn.menu-primary .menu-btn-sub {
+  color: #3a2706;
+  opacity: 0.85;
+}
+
+.menu-btn.small {
+  width: auto;
+  flex: none;
+  align-items: center;
+  padding: 10px 14px;
+}
+
+.menu-btn-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.menu-btn-sub {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.menu-seed {
+  display: flex;
+  gap: 8px;
+}
+
+.menu-seed input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  color: #eee;
+  background: rgb(10 8 14 / 0.85);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 10px;
+}
+
+.menu-seed input:focus {
+  outline: none;
+  border-color: #ffd23f;
+}
+
+.menu-seed input.bad {
+  border-color: #e2574c;
+}
+
+.menu-settings {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgb(10 8 14 / 0.7);
+  border-radius: 10px;
+}
+
+.menu-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.seg {
+  display: flex;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.seg button {
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: #ccc;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.seg button.on {
+  color: #1b130b;
+  background: #ffd23f;
+  font-weight: 700;
+}
+
+.menu-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.link {
+  font: inherit;
+  color: #ffd23f;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Boss defeated: rays, kicker, giant name. */
+.boss-banner {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(900px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.boss-banner.show {
+  animation: bb-life 4.2s ease-out forwards;
+}
+
+.bb-rays {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 520px;
+  height: 520px;
+  margin: -260px 0 0 -260px;
+  background: repeating-conic-gradient(rgb(255 210 63 / 0.22) 0deg 8deg, transparent 8deg 22deg);
+  mask-image: radial-gradient(circle, #000 15%, transparent 65%);
+  animation: bb-spin 8s linear infinite;
+  z-index: -1;
+}
+
+.bb-kicker {
+  font-size: clamp(14px, 2.2vw, 20px);
+  font-weight: 800;
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: #fff2b0;
+  text-shadow: 0 2px 6px #000;
+}
+
+.bb-name {
+  margin-top: 4px;
+  font-size: clamp(34px, 7vw, 72px);
+  font-weight: 900;
+  line-height: 1.05;
+  color: #ffd23f;
+  text-shadow:
+    0 3px 0 #a86f12,
+    0 6px 0 #5a3a08,
+    0 0 40px rgb(255 190 50 / 0.8),
+    0 10px 30px #000;
+}
+
+.bb-sub {
+  margin-top: 10px;
+  font-size: 15px;
+  color: #f2ece0;
+  text-shadow: 0 2px 4px #000;
+  opacity: 0.9;
+}
+
+@keyframes bb-life {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1.8);
+    filter: blur(6px);
+  }
+  10% {
+    opacity: 1;
+    transform: translateX(-50%) scale(0.96);
+    filter: blur(0);
+  }
+  16% {
+    transform: translateX(-50%) scale(1);
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1.04);
+  }
+}
+
+@keyframes bb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Hidden admin login and console ---- */
+
+.admin-login {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.65);
+  pointer-events: auto;
+}
+
+.admin-box {
+  width: min(320px, 100%);
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  background: #121018;
+  border: 1px solid #3a3346;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.7);
+}
+
+.admin-box h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #e2574c;
+}
+
+.admin-box input,
+.admin-input {
+  padding: 9px 11px;
+  font: 14px ui-monospace, monospace;
+  color: #eee;
+  background: #0a090d;
+  border: 1px solid #3a3346;
+  border-radius: 6px;
+}
+
+.admin-box input:focus,
+.admin-input:focus {
+  outline: none;
+  border-color: #e2574c;
+}
+
+.admin-error {
+  min-height: 1.2em;
+  margin: 0;
+  font-size: 12px;
+  color: #ff7a6e;
+}
+
+.admin-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-console {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  height: min(46vh, 380px);
+  display: flex;
+  flex-direction: column;
+  background: rgb(8 7 11 / 0.94);
+  border-bottom: 2px solid #e2574c;
+  font: 13px/1.45 ui-monospace, monospace;
+  pointer-events: auto;
+}
+
+.admin-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  color: #e2574c;
+  border-bottom: 1px solid #2a2433;
+}
+
+.admin-head span {
+  color: #999;
+}
+
+.admin-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+}
+
+.admin-line.cmd {
+  color: #ffd23f;
+}
+
+.admin-line.ok {
+  color: #cfe8c8;
+}
+
+.admin-line.err {
+  color: #ff7a6e;
+}
+
+.admin-line.info {
+  color: #8fc4ff;
+}
+
+.admin-input {
+  margin: 8px 12px 10px;
+}
+
+.admin-badge {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  font: 700 11px ui-monospace, monospace;
+  letter-spacing: 0.15em;
+  color: #e2574c;
+  border: 1px solid #e2574c;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.5);
+}
+
+.menu-title {
+  cursor: default;
+  user-select: none;
+}
+
+/* ---- Character creator, mods, tutorial, level-up badge, admin gear ---- */
+
+.menu-row2 {
+  display: flex;
+  gap: 8px;
+}
+
+.menu-row2 .menu-btn.small {
+  flex: 1;
+}
+
+.mod-count {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ffd23f;
+  color: #1b130b;
+  font-size: 12px;
+  text-align: center;
+}
+
+.menu-links {
+  display: flex;
+  gap: 12px;
+}
+
+/* The creator sits on the right so the hero stays visible on the left. */
+.char-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  pointer-events: auto;
+  overflow-y: auto;
+}
+
+.char-box {
+  width: min(400px, calc(100vw - 32px));
+  padding: 20px;
+  gap: 10px;
+  background: rgb(18 15 24 / 0.92);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.6);
+}
+
+.char-row {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.char-row > span {
+  opacity: 0.75;
+}
+
+.char-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.char-opts .seg {
+  flex-wrap: wrap;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  border: 2px solid rgb(255 255 255 / 0.15);
+  background: var(--c);
+  cursor: pointer;
+}
+
+.swatch:hover,
+.swatch:focus-visible {
+  outline: none;
+  border-color: rgb(255 255 255 / 0.6);
+}
+
+.swatch.on {
+  border-color: #ffd23f;
+  box-shadow: 0 0 0 2px rgb(255 210 63 / 0.4);
+}
+
+.char-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.mods-box {
+  width: min(560px, 100%);
+  padding: 22px;
+  background: rgb(18 15 24 / 0.95);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 12px;
+}
+
+.mods-help {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
+.mods-help code {
+  color: #ffd23f;
+}
+
+.mod-list {
+  display: grid;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.mods-empty {
+  margin: 0;
+  opacity: 0.6;
+  text-align: center;
+}
+
+.mod-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgb(10 8 14 / 0.7);
+  border: 1px solid rgb(255 255 255 / 0.08);
+}
+
+.mod-row.on {
+  border-color: rgb(255 210 63 / 0.5);
+}
+
+.mod-info {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.mod-name {
+  font-weight: 700;
+}
+
+.mod-ver,
+.mod-what {
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.65;
+}
+
+.mod-desc {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.mod-problems {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #ffd27a;
+}
+
+.mod-problems .err {
+  color: #ff8a6a;
+}
+
+.mod-btns {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.mods-msg {
+  margin: 0;
+  font-size: 13px;
+}
+
+.mods-msg.ok {
+  color: #b8e986;
+}
+
+.mods-msg.err {
+  color: #ff8a6a;
+}
+
+.file-btn {
+  cursor: pointer;
+}
+
+.tp-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+.tp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.tutorial-box {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: min(340px, calc(100vw - 230px));
+  padding: 12px 14px;
+  background: rgb(14 11 20 / 0.86);
+  border: 1px solid rgb(255 210 63 / 0.35);
+  border-radius: 10px;
+  pointer-events: auto;
+  font-size: 14px;
+  animation: menu-in 0.3s ease-out;
+}
+
+.tut-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tut-head b {
+  font-size: 17px;
+}
+
+.tut-kicker {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #ffd23f;
+}
+
+.tut-skip {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.tutorial-box ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+}
+
+.tutorial-box li {
+  position: relative;
+  padding-left: 24px;
+  line-height: 1.35;
+}
+
+.tutorial-box li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgb(255 255 255 / 0.4);
+  border-radius: 4px;
+}
+
+.tutorial-box li.done {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+.tutorial-box li.done::before {
+  border-color: #6fe07a;
+  background: #6fe07a;
+}
+
+.tut-next {
+  margin: 8px 0 0;
+  color: #b8e986;
+  font-weight: 700;
+}
+
+/* Level-up waiting for a quiet moment. */
+.levelup-ready {
+  position: absolute;
+  left: 50%;
+  bottom: 118px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 16px;
+  font: inherit;
+  color: #1b130b;
+  background: linear-gradient(180deg, #ffe08a, #e8b83c);
+  border: 1px solid #fff2b0;
+  border-radius: 10px;
+  pointer-events: auto;
+  cursor: pointer;
+  animation: ready-pulse 1.2s ease-in-out infinite;
+}
+
+.levelup-ready b {
+  font-size: 15px;
+}
+
+.levelup-ready span {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+@keyframes ready-pulse {
+  50% {
+    box-shadow: 0 0 18px rgb(255 210 63 / 0.8);
+  }
+}
+
+/* Admin gear shimmers in the bag and the HUD. */
+.slot.filled[style*='#29ffe0'],
+.gear-slot.admin {
+  animation: admin-glow 1.2s ease-in-out infinite;
+}
+
+@keyframes admin-glow {
+  50% {
+    box-shadow:
+      0 0 16px rgb(41 255 224 / 0.85),
+      inset 0 0 14px rgb(255 210 63 / 0.5);
+  }
+}
+
+@media (max-width: 640px) {
+  .tutorial-box {
+    width: calc(100vw - 28px);
+    font-size: 13px;
+  }
+}

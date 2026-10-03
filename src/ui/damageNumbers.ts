@@ -1,3 +1,4 @@
+import { groundAt } from '../world/terrain';
 import * as THREE from 'three';
 
 const POOL = 48;
@@ -34,13 +35,21 @@ export class DamageNumbers {
     }
   }
 
+  /** Damage as shown: exact up to 99,999, then compact (240K, 6.0M). */
+  static format(amount: number): string {
+    if (amount < 100_000) return String(amount);
+    if (amount < 1_000_000) return `${Math.round(amount / 1000)}K`;
+    if (amount < 1e9) return `${(amount / 1e6).toFixed(1)}M`;
+    return `${(amount / 1e9).toFixed(1)}B`;
+  }
+
   /** `kind` picks the style: enemy damage, crit, damage taken, or healing. */
   spawn(x: number, y: number, z: number, text: string, kind: 'hit' | 'crit' | 'hurt' | 'heal' | 'burn'): void {
     // Round-robin: when the pool is exhausted the oldest number is reused.
     const n = this.nums[this.next];
     this.next = (this.next + 1) % POOL;
     n.x = x;
-    n.y = y;
+    n.y = y + groundAt(x, z);
     n.z = z;
     n.drift = (Math.random() - 0.5) * 30;
     n.age = 0;

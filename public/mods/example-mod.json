@@ -1,0 +1,60 @@
+{
+  "id": "example",
+  "name": "Example Mod",
+  "version": "1.0",
+  "author": "you",
+  "description": "Shows every kind of change a mod can make. Switch it on from Mods on the title screen.",
+  "tweaks": {
+    "xpMult": 1.5,
+    "dropMult": 1.5,
+    "bonusPotions": 1
+  },
+  "items": [
+    {
+      "name": "Moonblade",
+      "kind": "weapon",
+      "weapon": "sword",
+      "rarity": "mythic",
+      "damage": 26,
+      "mods": [
+        { "stat": "critChance", "value": 0.12 },
+        { "stat": "attackSpeedPct", "value": 0.2 }
+      ],
+      "powers": ["frost", "chain"],
+      "minFloor": 2
+    },
+    {
+      "name": "Cloak of Embers",
+      "kind": "armor",
+      "rarity": "unique",
+      "armor": 18,
+      "maxHp": 20,
+      "mods": [{ "stat": "moveSpeedPct", "value": 0.1 }]
+    }
+  ],
+  "enemies": [
+    {
+      "id": "frost-grunt",
+      "name": "Frost Grunt",
+      "base": "grunt",
+      "tint": "#8fd4ff",
+      "hpMult": 1.5,
+      "damageMult": 1.2,
+      "xpMult": 1.5,
+      "scale": 1.1,
+      "chance": 0.3
+    },
+    {
+      "id": "giant-spider",
+      "name": "Giant Spider",
+      "base": "spider",
+      "tint": "#9b5a3a",
+      "scale": 1.6,
+      "hpMult": 3,
+      "speedMult": 0.85,
+      "xpMult": 2.5,
+      "chance": 0.15,
+      "minFloor": 3
+    }
+  ]
+}

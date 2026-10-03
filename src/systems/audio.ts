@@ -1,4 +1,5 @@
 /** Procedural sound effects on Web Audio. No assets: everything is oscillators and filtered noise. */
+import type { Rarity } from './loot';
 
 const MUTE_KEY = 'voxel-dungeon:muted';
 /** The same sound can't restart more often than this (e.g. a 7-arrow volley in one tick). */
@@ -170,7 +171,7 @@ export class Sfx {
     if (this.gate('dodge')) this.hiss('bandpass', 600, 2400, 0.2, 0.22);
   }
 
-  pickup(rarity: 'common' | 'rare' | 'unique' | 'mythic' | 'potion'): void {
+  pickup(rarity: Rarity | 'potion'): void {
     if (!this.gate('pickup')) return;
     if (rarity === 'potion') {
       this.notes([660, 880], 0.05, 'sine', 0.12, 0.2);
@@ -181,6 +182,7 @@ export class Sfx {
       rare: [523, 659, 784],
       unique: [523, 659, 784, 1047],
       mythic: [392, 523, 659, 784, 1047, 1319],
+      admin: [262, 392, 523, 659, 784, 1047, 1319, 1568],
     }[rarity];
     this.notes(chord, 0.06, 'triangle', 0.18, 0.2);
   }
@@ -206,12 +208,38 @@ export class Sfx {
     this.tone('sawtooth', 82, 78, 1.4, 0.2);
   }
 
+  /** Boom, then a rising fanfare ending on a held major chord. */
   bossDefeated(): void {
-    if (this.gate('bossDown')) this.notes([392, 523, 659, 784, 1047], 0.12, 'triangle', 0.4, 0.22);
+    if (!this.gate('bossDown')) return;
+    this.hiss('lowpass', 2000, 60, 1.2, 0.8);
+    this.tone('sine', 90, 28, 1.0, 0.7);
+    this.notes([392, 523, 659, 784], 0.13, 'square', 0.22, 0.1);
+    for (const f of [523, 659, 784, 1047]) this.tone('triangle', f, f * 1.003, 1.6, 0.14, 0.6);
+    this.tone('sawtooth', 131, 131, 1.6, 0.08, 0.6);
   }
 
   playerDied(): void {
     if (this.gate('playerDied')) this.notes([392, 330, 262, 196], 0.18, 'sawtooth', 0.35, 0.18);
+  }
+
+  /** Metal clang of a shield block. */
+  block(): void {
+    if (!this.gate('block')) return;
+    this.tone('square', 900, 600, 0.08, 0.14);
+    this.tone('triangle', 1400, 1300, 0.25, 0.12);
+    this.hiss('highpass', 5000, 3000, 0.1, 0.15);
+  }
+
+  /** Soft rising chime when monsters are healed. */
+  enemyHeal(): void {
+    if (this.gate('enemyHeal')) this.notes([440, 554, 659], 0.06, 'sine', 0.3, 0.12);
+  }
+
+  /** Grinding rumble of something climbing out of the floor. */
+  rise(): void {
+    if (!this.gate('rise')) return;
+    this.hiss('lowpass', 500, 120, 0.6, 0.35);
+    this.tone('sawtooth', 70, 50, 0.5, 0.08);
   }
 
   zap(): void {

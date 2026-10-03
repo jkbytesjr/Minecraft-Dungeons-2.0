@@ -1,3 +1,4 @@
+import { groundAt } from '../world/terrain';
 import * as THREE from 'three';
 
 const MAX_PARTICLES = 800;
@@ -33,6 +34,8 @@ export class Particles {
   private readonly maxLife = new Float32Array(MAX_PARTICLES);
   private readonly size = new Float32Array(MAX_PARTICLES);
   private readonly grav = new Float32Array(MAX_PARTICLES);
+  /** Floor height under where each particle was spawned (raised altars, pits). */
+  private readonly ground = new Float32Array(MAX_PARTICLES);
   private readonly spin = new Float32Array(MAX_PARTICLES);
   private readonly colors = new Uint32Array(MAX_PARTICLES);
   private live = 0;
@@ -68,8 +71,10 @@ export class Particles {
       const i = this.live < MAX_PARTICLES ? this.live++ : Math.floor(Math.random() * MAX_PARTICLES);
       const a = Math.random() * Math.PI * 2;
       const sp = s0 + Math.random() * (s1 - s0);
+      const g = groundAt(x, z);
+      this.ground[i] = g;
       this.px[i] = x + (Math.random() - 0.5) * 2 * spread;
-      this.py[i] = y + (Math.random() - 0.5) * spread;
+      this.py[i] = g + y + (Math.random() - 0.5) * spread;
       this.pz[i] = z + (Math.random() - 0.5) * 2 * spread;
       this.vx[i] = Math.cos(a) * sp;
       this.vz[i] = Math.sin(a) * sp;
@@ -119,9 +124,9 @@ export class Particles {
       this.px[i] += this.vx[i] * dt;
       this.py[i] += this.vy[i] * dt;
       this.pz[i] += this.vz[i] * dt;
-      if (this.py[i] < this.size[i] / 2 && this.vy[i] < 0) {
+      if (this.py[i] < this.ground[i] + this.size[i] / 2 && this.vy[i] < 0) {
         // Bounce and skid on the floor.
-        this.py[i] = this.size[i] / 2;
+        this.py[i] = this.ground[i] + this.size[i] / 2;
         this.vy[i] *= -0.35;
         this.vx[i] *= 0.6;
         this.vz[i] *= 0.6;
@@ -160,6 +165,7 @@ export class Particles {
     this.maxLife[i] = this.maxLife[j];
     this.size[i] = this.size[j];
     this.grav[i] = this.grav[j];
+    this.ground[i] = this.ground[j];
     this.spin[i] = this.spin[j];
     this.colors[i] = this.colors[j];
   }

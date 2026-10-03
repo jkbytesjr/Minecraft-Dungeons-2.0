@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { EnemyContext } from '../enemy';
 import { Boss, groundCircle, telegraphMaterial } from '../boss';
-import { buildHumanoid, voxelBox } from '../voxelModel';
+import { buildHumanoid, onHead, voxelBox } from '../voxelModel';
 
 type State = 'walk' | 'slamWindup' | 'slam' | 'chargeWindup' | 'charge' | 'summon' | 'recover';
 
@@ -36,11 +36,41 @@ export class Colossus extends Boss {
       4.0,
     );
     this.addEyes(0xff8a2a);
-    // Stone maul and shoulder plates.
-    this.model.armR.add(voxelBox([0.06, 0.06, 0.9], 0x4a3220, [0, -0.5, 0.4]));
-    this.model.armR.add(voxelBox([0.32, 0.26, 0.26], 0x77777f, [0, -0.5, 0.85]));
+    const { head, armL, armR } = this.model;
     const inner = this.model.body.children[0];
-    inner.add(voxelBox([0.22, 0.12, 0.3], 0x6e6a74, [-0.36, 1.18, 0]), voxelBox([0.22, 0.12, 0.3], 0x6e6a74, [0.36, 1.18, 0]));
+    // Curling horns and a stone jaw.
+    onHead(head, [0.08, 0.2, 0.08], 0xd8cfb8, [-0.2, 0.26, 0.02]).rotateZ(0.5);
+    onHead(head, [0.08, 0.2, 0.08], 0xd8cfb8, [0.2, 0.26, 0.02]).rotateZ(-0.5);
+    onHead(head, [0.06, 0.1, 0.06], 0xd8cfb8, [-0.29, 0.37, 0.02]).rotateZ(-0.4);
+    onHead(head, [0.06, 0.1, 0.06], 0xd8cfb8, [0.29, 0.37, 0.02]).rotateZ(0.4);
+    onHead(head, [0.36, 0.1, 0.06], 0x3a3940, [0, -0.15, 0.21]);
+    // Spiked shoulder plates.
+    for (const [arm, side] of [
+      [armL, -1],
+      [armR, 1],
+    ] as const) {
+      arm.add(voxelBox([0.3, 0.16, 0.32], 0x6e6a74, [0, -0.02, 0]));
+      arm.add(voxelBox([0.06, 0.16, 0.06], 0xbfbfbf, [side * 0.06, 0.12, 0]), voxelBox([0.06, 0.12, 0.06], 0xbfbfbf, [side * 0.06, 0.08, 0.1]));
+    }
+    // Molten crack in the chest, and a chain belt.
+    const ember = new THREE.MeshBasicMaterial({ color: 0xff7a1a });
+    for (const [w, h, x, y] of [
+      [0.06, 0.22, -0.04, 0.92],
+      [0.14, 0.05, 0.03, 1.02],
+      [0.05, 0.12, 0.08, 0.84],
+    ]) {
+      const crack = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.02), ember);
+      crack.position.set(x, y, 0.16);
+      inner.add(crack);
+    }
+    inner.add(voxelBox([0.54, 0.09, 0.34], 0x77777f, [0, 0.66, 0]));
+    // Banded stone maul.
+    armR.add(
+      voxelBox([0.07, 0.07, 1.0], 0x4a3220, [0, -0.5, 0.42]),
+      voxelBox([0.36, 0.3, 0.34], 0x77777f, [0, -0.5, 0.9]),
+      voxelBox([0.38, 0.06, 0.36], 0x4a4a52, [0, -0.5, 0.78]),
+      voxelBox([0.38, 0.06, 0.36], 0x4a4a52, [0, -0.5, 1.02]),
+    );
 
     this.slamRing = groundCircle();
     this.slamRing.position.z = SLAM_REACH;

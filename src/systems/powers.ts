@@ -4,24 +4,30 @@ import type { Rng } from '../core/rng';
 export type PowerId = 'ignite' | 'frost' | 'chain' | 'shockwave' | 'detonate';
 export const POWER_IDS: readonly PowerId[] = ['ignite', 'frost', 'chain', 'shockwave', 'detonate'];
 
+export type PowerTier = 1 | 2 | 3;
+
 export interface WeaponPower {
   id: PowerId;
-  /** 1 on unique weapons, 2 (stronger) on mythic weapons. */
-  tier: 1 | 2;
+  /** 1 on unique weapons, 2 (stronger) on mythic weapons, 3 on admin gear. */
+  tier: PowerTier;
 }
 
 /** Tuning per power and tier. Damage values are fractions of the hit's weapon damage. */
 export const POWER_VALUES = {
-  ignite: { 1: { dps: 0.35, duration: 3 }, 2: { dps: 0.55, duration: 4 } },
-  frost: { 1: { slow: 0.5, duration: 2, freezeChance: 0.12, freeze: 1.2 }, 2: { slow: 0.4, duration: 2.5, freezeChance: 0.2, freeze: 1.5 } },
-  chain: { 1: { chance: 0.25, jumps: 3, damage: 0.6, range: 5 }, 2: { chance: 0.4, jumps: 5, damage: 0.8, range: 6 } },
-  shockwave: { 1: { every: 4, radius: 2.6, damage: 0.8 }, 2: { every: 3, radius: 3.2, damage: 1.1 } },
-  detonate: { 1: { radius: 2.2, damage: 0.9 }, 2: { radius: 2.8, damage: 1.3 } },
+  ignite: { 1: { dps: 0.35, duration: 3 }, 2: { dps: 0.55, duration: 4 }, 3: { dps: 1, duration: 5 } },
+  frost: {
+    1: { slow: 0.5, duration: 2, freezeChance: 0.12, freeze: 1.2 },
+    2: { slow: 0.4, duration: 2.5, freezeChance: 0.2, freeze: 1.5 },
+    3: { slow: 0.25, duration: 3, freezeChance: 0.5, freeze: 2 },
+  },
+  chain: { 1: { chance: 0.25, jumps: 3, damage: 0.6, range: 5 }, 2: { chance: 0.4, jumps: 5, damage: 0.8, range: 6 }, 3: { chance: 1, jumps: 8, damage: 1, range: 8 } },
+  shockwave: { 1: { every: 4, radius: 2.6, damage: 0.8 }, 2: { every: 3, radius: 3.2, damage: 1.1 }, 3: { every: 2, radius: 4, damage: 1.5 } },
+  detonate: { 1: { radius: 2.2, damage: 0.9 }, 2: { radius: 2.8, damage: 1.3 }, 3: { radius: 3.5, damage: 2 } },
 } as const;
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
-export const POWERS: Record<PowerId, { name: string; color: string; describe: (tier: 1 | 2) => string }> = {
+export const POWERS: Record<PowerId, { name: string; color: string; describe: (tier: PowerTier) => string }> = {
   ignite: {
     name: 'Ignite',
     color: '#ff8a3c',
@@ -48,7 +54,8 @@ export const POWERS: Record<PowerId, { name: string; color: string; describe: (t
     color: '#e8e2c8',
     describe: (t) => {
       const v = POWER_VALUES.shockwave[t];
-      return `Every ${v.every === 3 ? '3rd' : '4th'} hit releases a shockwave for ${pct(v.damage)} damage`;
+      const nth = v.every === 2 ? '2nd' : v.every === 3 ? '3rd' : `${v.every}th`;
+      return `Every ${nth} hit releases a shockwave for ${pct(v.damage)} damage`;
     },
   },
   detonate: {

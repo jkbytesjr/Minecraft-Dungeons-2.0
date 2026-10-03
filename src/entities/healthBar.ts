@@ -4,6 +4,7 @@ const WIDTH = 0.9;
 const plane = new THREE.PlaneGeometry(1, 1);
 const bgMat = new THREE.MeshBasicMaterial({ color: 0x1a0d0d, depthTest: false, transparent: true, opacity: 0.85 });
 const fillMat = new THREE.MeshBasicMaterial({ color: 0xd8463c, depthTest: false });
+const eliteFillMat = new THREE.MeshBasicMaterial({ color: 0xffc23a, depthTest: false });
 
 /** Camera-facing HP bar floating above an enemy. Hidden at full HP. */
 export class HealthBar {
@@ -21,11 +22,17 @@ export class HealthBar {
     this.group.visible = false;
   }
 
-  update(x: number, z: number, fraction: number, camera: THREE.Camera): void {
+  /** Gold bar for elite enemies. */
+  setElite(): void {
+    this.fill.material = eliteFillMat;
+  }
+
+  /** `ground`: floor height under the enemy (raised or sunken floors). */
+  update(x: number, z: number, fraction: number, camera: THREE.Camera, ground = 0): void {
     const f = Math.max(0, Math.min(1, fraction));
     this.group.visible = f < 1 && f > 0;
     if (!this.group.visible) return;
-    this.group.position.set(x, this.height, z);
+    this.group.position.set(x, this.height + ground, z);
     this.group.quaternion.copy(camera.quaternion);
     this.fill.scale.x = WIDTH * f;
     this.fill.position.x = (-WIDTH * (1 - f)) / 2;

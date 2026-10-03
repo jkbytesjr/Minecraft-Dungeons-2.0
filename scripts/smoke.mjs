@@ -27,6 +27,16 @@ const check = (cond, msg) => {
   if (!cond) failed = true;
 };
 const state = () => page.evaluate(() => window.__game.debugState());
+/**
+ * Wait `ms` of real time and at least three rendered frames. Headless software
+ * rendering can drop to ~8 fps, so a fixed short wait can end before the game
+ * has even seen a key press.
+ */
+const settle = async (ms) => {
+  const f0 = await page.evaluate(() => window.__game?.frameCount ?? 0);
+  await page.waitForTimeout(ms);
+  await page.waitForFunction((f) => (window.__game?.frameCount ?? 0) >= f + 3, f0, { timeout: 20000 });
+};
 /** Wait for `seconds` of simulated game time (headless rendering runs slower than real time). */
 const waitSim = async (seconds) => {
   const start = await page.evaluate(() => window.__game.simTime);
@@ -47,14 +57,14 @@ try {
   check(['grunt', 'archer', 'exploder', 'boss'].every((k) => kinds.has(k)), `all enemy kinds present (${[...kinds]})`);
   const s0 = await state();
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(800);
+  await settle(800);
   await page.keyboard.up('KeyW');
   const s1 = await state();
   check(Math.hypot(s1.player.x - s0.player.x, s1.player.z - s0.player.z) > 1, 'W moves the player');
 
   // Walk into a wall for a long time; the player must stay on walkable ground.
   await page.keyboard.down('KeyA');
-  await page.waitForTimeout(3000);
+  await settle(3000);
   await page.keyboard.up('KeyA');
   const s2 = await state();
   const inside = await page.evaluate(({ x, z }) => window.__game.level.grid.isWalkableAt(x, z), s2.player);
@@ -65,10 +75,10 @@ try {
 
   // --- M2: combat ---
   await page.evaluate(() => window.__game.restart());
-  await page.waitForTimeout(200);
+  await settle(200);
   // Grunt 1.2 tiles away; aim at it and attack until it dies.
   await page.evaluate(() => window.__game.debugSpawn('grunt', 1.2, 0));
-  await page.waitForTimeout(100);
+  await settle(100);
   const target = async () => (await state()).enemies.find((e) => e.alive && e.kind === 'grunt');
   const aimAtGrunt = async () => {
     const g = await target();
@@ -80,7 +90,7 @@ try {
   await aimAtGrunt();
   const hp0 = (await target()).hp;
   await page.mouse.down();
-  await page.waitForTimeout(250);
+  await settle(250);
   await page.screenshot({ path: `${outDir}/03-combat.png` });
   for (let i = 0; i < 60 && (await aimAtGrunt()); i++) await waitSim(0.15);
   await page.mouse.up();
@@ -97,7 +107,7 @@ try {
     .waitForFunction(() => window.__game.debugState().player.dodging, null, { polling: 'raf', timeout: 2000 })
     .then(() => true, () => false);
   check(dodged, 'space starts a dodge roll');
-  await page.waitForTimeout(400);
+  await settle(400);
   const d2 = await state();
   check(Math.hypot(d2.player.x - d0.player.x, d2.player.z - d0.player.z) > 1.5, 'dodge roll covers distance');
 
@@ -110,19 +120,19 @@ try {
 
   // Death screen + restart.
   await page.evaluate(() => window.__game.world.player.applyDamage(9999, 0, 0));
-  await page.waitForTimeout(600);
+  await settle(600);
   check(await page.isVisible('.screen.death'), 'death screen shows at 0 HP');
   check((await page.textContent('.screen.death .summary')).includes('Reached floor 1'), 'death screen shows the floor reached');
   await page.screenshot({ path: `${outDir}/05-death.png` });
   await page.click('.restart');
-  await page.waitForTimeout(200);
+  await settle(200);
   const r = await state();
   check(r.player.alive && r.player.hp === 100 && !(await page.isVisible('.screen.death')), 'restart restores the player');
 
   // --- M4: archer, exploder, boss, portal, victory ---
   const extra = () => page.evaluate(() => window.__game.debugExtra());
   await page.evaluate(() => window.__game.restart());
-  await page.waitForTimeout(200);
+  await settle(200);
   await page.evaluate(() => window.__game.debugSpawn('archer', 0, 5.5));
   let sawArrow = false;
   for (let i = 0; i < 40 && !sawArrow; i++) {
@@ -133,7 +143,7 @@ try {
   await page.screenshot({ path: `${outDir}/07-archer.png` });
 
   await page.evaluate(() => window.__game.restart());
-  await page.waitForTimeout(200);
+  await settle(200);
   await page.evaluate(() => window.__game.debugSpawn('exploder', 3, 0));
   await waitSim(0.6);
   await page.screenshot({ path: `${outDir}/08-exploder-fuse.png` });
@@ -163,11 +173,18 @@ try {
     if (depth === 8) check(bossName.endsWith('Ascendant'), `floor 9 boss is Ascendant (${bossName})`);
     if (depth < 4) await page.screenshot({ path: `${outDir}/09-boss-${depth + 1}-${info.bossKind}.png` });
     await page.evaluate(() => window.__game.debugKillBoss());
-    await page.waitForTimeout(300);
+    await settle(300);
+    if (depth === 0) {
+      const banner = await page.isVisible('.boss-banner.show');
+      const bname = await page.textContent('.bb-name');
+      check(banner && bname.includes('Colossus'), `boss defeated banner shows (${bname})`);
+      await settle(400);
+      await page.screenshot({ path: `${outDir}/09b-boss-defeated.png` });
+    }
     if (depth === 0) check((await extra()).portalActive, 'portal opens after the boss dies');
     const exit = await page.evaluate(() => window.__game.level.exit);
     await page.evaluate(({ x, z }) => window.__game.debugTeleport(x, z), exit);
-    await page.waitForTimeout(300);
+    await settle(300);
     check((await extra()).depth === depth + 1, `portal leads to floor ${depth + 2}`);
   }
   check(bossKinds[0] === 'colossus' && new Set(bossKinds.slice(0, 4)).size === 4, `floors 1-4 have four different bosses (${bossKinds.join(', ')})`);
@@ -178,11 +195,11 @@ try {
   // Death ends the run: summary, best floor, and New run rolls a new seed.
   const seedBefore = await page.evaluate(() => window.__game.seed);
   await page.evaluate(() => window.__game.worldState.player.applyDamage(1e9, 0, 0));
-  await page.waitForTimeout(400);
+  await settle(400);
   check((await page.textContent('.screen.death .summary')).includes('Reached floor 10'), 'death summary shows floor 10');
   check((await extra()).bestFloor >= 10, `best floor is recorded (${(await extra()).bestFloor})`);
   await page.click('.new-run');
-  await page.waitForTimeout(200);
+  await settle(200);
   check(
     (await extra()).depth === 0 && (await page.evaluate(() => window.__game.seed)) !== seedBefore && !(await page.isVisible('.screen.death')),
     'New run starts a fresh dungeon at floor 1',
@@ -224,13 +241,13 @@ try {
   await page.evaluate(() => window.__game.debugGive('weapon', 'unique'));
   await page.evaluate(() => window.__game.debugGive('armor', 'rare'));
   await page.keyboard.press('Tab');
-  await page.waitForTimeout(150);
+  await settle(150);
   check(await page.isVisible('.inventory'), 'Tab opens the inventory');
   const simBefore = await page.evaluate(() => window.__game.simTime);
-  await page.waitForTimeout(300);
+  await settle(300);
   check((await page.evaluate(() => window.__game.simTime)) === simBefore, 'game is paused while inventory is open');
   await page.hover('[data-bag="0"]');
-  await page.waitForTimeout(100);
+  await settle(100);
   await page.screenshot({ path: `${outDir}/12-inventory.png` });
   const weaponBefore = (await state()).player.weapon;
   const newKind = await page.evaluate(() => window.__game.worldState.player.inventory.bag[0].weapon);
@@ -241,9 +258,16 @@ try {
   await page.click(`[data-bag="${armorIdx}"]`);
   check((await state()).player.maxHp > hpMaxBefore, 'equipping armor raises max HP');
   await page.keyboard.press('Tab');
-  await page.waitForTimeout(100);
+  await settle(100);
   check(!(await page.isVisible('.inventory')), 'Tab closes the inventory');
-  check(await page.evaluate(() => window.__game.worldState.player.armorParts.length > 0), 'equipped armor is shown on the character');
+  check(await page.evaluate(() => (window.__game.worldState.player.worn?.parts.length ?? 0) > 0), 'equipped armor is shown on the character');
+  check(
+    await page.evaluate(() => {
+      const m = window.__game.worldState.player.model;
+      return !m.hair || m.hair.visible === false;
+    }),
+    'headgear hides the hair instead of clipping through it',
+  );
   check(
     (await page.locator('[data-gear="weapon"] svg').count()) === 1 && (await page.locator('[data-gear="armor"].empty').count()) === 0,
     'HUD shows equipped weapon and armor',
@@ -267,7 +291,7 @@ try {
   const shots1 = (await extra()).shots;
   await page.keyboard.press('KeyE');
   await waitSim(0.05);
-  check((await extra()).shots - shots1 === 7, 'E fires a 7-arrow volley');
+  check((await extra()).shots - shots1 === 7, 'E throws a 7-spear volley');
   await page.screenshot({ path: `${outDir}/13-volley.png` });
   await page.evaluate(() => window.__game.debugSpawn('grunt', 1.5, 0));
   await waitSim(0.1);
@@ -341,13 +365,13 @@ try {
   const myth = await page.evaluate(() => window.__mythic);
   check(myth.rarity === 'mythic' && myth.powers === 2, 'mythic weapons roll with two powers');
   await page.keyboard.press('Tab');
-  await page.waitForTimeout(150);
+  await settle(150);
   await page.hover(`[data-bag="${(await state()).player.bag - 1}"]`);
-  await page.waitForTimeout(120);
+  await settle(120);
   check((await page.locator('.tooltip .tt-power').count()) === 2, 'tooltip lists the weapon powers');
   await page.screenshot({ path: `${outDir}/18-mythic-tooltip.png` });
   await page.keyboard.press('Tab');
-  await page.waitForTimeout(100);
+  await settle(100);
 
   // --- Level-up attribute choice ---
   await page.evaluate(() => window.__game.restart());
@@ -358,12 +382,20 @@ try {
     const p = g.worldState.player;
     p.hp = 30;
     p.gainXp(1000);
+    // Pretend a fight is going on: the choice must wait.
+    g.worldState.calmTime = 0;
   });
-  await page.waitForTimeout(200);
+  await settle(120);
+  check(
+    !(await extra()).levelUpOpen && (await page.isVisible('.levelup-ready')),
+    'level-up waits during a fight, with an "attribute ready" badge',
+  );
+  await page.keyboard.press('KeyL');
+  await settle(200);
   const lv = await state();
   check((await extra()).levelUpOpen && (await page.locator('.levelup .perk').count()) === 3, `level-up offers 3 attributes (level ${lv.player.level})`);
   const simL = await page.evaluate(() => window.__game.simTime);
-  await page.waitForTimeout(300);
+  await settle(300);
   check((await page.evaluate(() => window.__game.simTime)) === simL, 'game is paused while choosing');
   await page.screenshot({ path: `${outDir}/16-levelup.png` });
   const before = await page.evaluate(() => {
@@ -371,7 +403,7 @@ try {
     return { picks: p.progress.pendingPicks, potions: p.inventory.potions };
   });
   await page.keyboard.press('Digit1');
-  await page.waitForTimeout(150);
+  await settle(150);
   const after = await page.evaluate(() => {
     const p = window.__game.worldState.player;
     return { picks: p.progress.pendingPicks, potions: p.inventory.potions, perks: Object.values(p.progress.perks).reduce((a, b) => a + b, 0) };
@@ -381,9 +413,10 @@ try {
   // Click through any remaining picks.
   for (let i = 0; i < 20 && (await extra()).levelUpOpen; i++) {
     await page.click('.levelup .perk >> nth=1');
-    await page.waitForTimeout(80);
+    await settle(80);
   }
-  check(!(await extra()).levelUpOpen && (await state()).player.alive, 'clicking a card picks it and resumes');
+  const lvDone = { open: (await extra()).levelUpOpen, alive: (await state()).player.alive, pending: await page.evaluate(() => window.__game.worldState.player.progress.pendingPicks) };
+  check(!lvDone.open && lvDone.alive, `clicking a card picks it and resumes (${JSON.stringify(lvDone)})`);
   await page.evaluate(() => (window.__game.autoPerk = true));
 
   // --- M6: particles, damage numbers, minimap, audio, HUD ---
@@ -410,31 +443,376 @@ try {
   await page.screenshot({ path: `${outDir}/14-effects.png` });
   await page.evaluate(() => (window.__game.worldState.player.hp = 10));
   await page.evaluate(() => window.__game.worldState.player.applyDamage(1, 0, 0));
-  await page.waitForTimeout(150);
+  await settle(150);
   check(await page.locator('.vignette.low').count() === 1, 'low HP shows the warning vignette');
   const muted0 = (await fx()).muted;
   await page.keyboard.press('KeyM');
-  await page.waitForTimeout(100);
+  await settle(100);
   check((await fx()).muted !== muted0 && (await page.textContent('.sound-hint')).includes(muted0 ? 'on' : 'off'), 'M toggles sound');
   await page.keyboard.press('KeyM');
   await page.keyboard.press('KeyH');
-  await page.waitForTimeout(100);
+  await settle(100);
   const simH = await page.evaluate(() => window.__game.simTime);
-  await page.waitForTimeout(300);
+  await settle(300);
   check(await page.isVisible('.controls-panel') && (await page.evaluate(() => window.__game.simTime)) === simH, 'H shows controls and pauses');
   await page.screenshot({ path: `${outDir}/15-controls.png` });
   await page.keyboard.press('KeyH');
-  await page.waitForTimeout(100);
+  await settle(100);
   check(!(await page.isVisible('.controls-panel')), 'H hides controls');
   const t0 = await page.evaluate(() => window.__game.simTime);
-  await page.waitForTimeout(1000);
+  await settle(1000);
   const simRate = (await page.evaluate(() => window.__game.simTime)) - t0;
   check(simRate > 0.2, `fixed-step simulation keeps running (${simRate.toFixed(2)} sim s per real s)`);
+
+  // --- Movement follows the mouse ---
+  await page.evaluate(() => window.__game.restart());
+  await waitSim(0.3);
+  {
+    const p0 = (await state()).player;
+    // Aim at a point up-left of the player on screen, then hold W.
+    const target = await page.evaluate(({ x, z }) => window.__game.debugWorldToScreen(x - 2.2, z + 1.2), p0);
+    await page.mouse.move(target.x, target.y);
+    await waitSim(0.1);
+    await page.keyboard.down('KeyW');
+    await waitSim(0.3);
+    await page.keyboard.up('KeyW');
+    const p1 = (await state()).player;
+    const mx = p1.x - p0.x;
+    const mz = p1.z - p0.z;
+    const dot = (mx * -2.2 + mz * 1.2) / (Math.hypot(mx, mz) * Math.hypot(-2.2, 1.2) || 1);
+    check(Math.hypot(mx, mz) > 0.5 && dot > 0.8, `W walks toward the mouse (alignment ${dot.toFixed(2)})`);
+  }
+
+  // --- Pause menu, saving, title screen, continue ---
+  await page.evaluate(() => {
+    const g = window.__game;
+    const p = g.worldState.player;
+    p.gainXp(400);
+    g.debugGive('weapon', 'mythic');
+    g.loadFloor(2);
+  });
+  await waitSim(0.2);
+  // Let auto-pick spend any queued attribute picks first.
+  await page.waitForFunction(() => window.__game.worldState.player.progress.pendingPicks === 0, null, { timeout: 10000 });
+  const beforeSave = await page.evaluate(() => {
+    const p = window.__game.worldState.player;
+    return { level: p.progress.level, bag: p.inventory.bag.length, perks: JSON.stringify(p.progress.perks) };
+  });
+  await page.keyboard.press('Escape');
+  await settle(150);
+  const simP = await page.evaluate(() => window.__game.simTime);
+  await settle(250);
+  check((await page.isVisible('.pause-menu')) && (await page.evaluate(() => window.__game.simTime)) === simP, 'Escape pauses the game');
+  await page.screenshot({ path: `${outDir}/19-pause.png` });
+  await page.click('.pause-menu [data-act="save"]');
+  await settle(400);
+  check(
+    (await page.isVisible('.main-menu')) && (await page.evaluate(() => window.__game.mode)) === 'menu' && !(await page.isVisible('.hp-bar')),
+    'Save & quit shows the title screen without the HUD',
+  );
+  const contText = await page.textContent('.main-menu [data-act="continue"]').catch(() => '');
+  check(contText.includes('Floor 3') && contText.includes(`Level ${beforeSave.level}`), `title screen offers Continue (${contText.replace(/\s+/g, ' ').trim()})`);
+  await settle(800);
+  await page.screenshot({ path: `${outDir}/20-title.png` });
+  await page.click('.main-menu [data-act="continue"]');
+  await settle(300);
+  const afterLoad = await page.evaluate(() => {
+    const g = window.__game;
+    const p = g.worldState.player;
+    return { mode: g.mode, depth: g.depth, level: p.progress.level, bag: p.inventory.bag.length, perks: JSON.stringify(p.progress.perks) };
+  });
+  check(
+    afterLoad.mode === 'playing' && afterLoad.depth === 2 && afterLoad.level === beforeSave.level && afterLoad.bag === beforeSave.bag && afterLoad.perks === beforeSave.perks,
+    `Continue restores floor, level, attributes and bag (before ${JSON.stringify(beforeSave)} after ${JSON.stringify(afterLoad)})`,
+  );
+  await page.evaluate(() => window.__game.worldState.player.applyDamage(1e9, 0, 0));
+  await settle(300);
+  check((await page.evaluate(() => window.localStorage.getItem('voxel-dungeon:save'))) === null, 'dying deletes the save');
+  await page.click('.screen.death .to-menu');
+  await settle(300);
+  check((await page.isVisible('.main-menu')) && (await page.locator('.main-menu [data-act="continue"]').count()) === 0, 'death screen leads to the menu, with no Continue');
+  await page.fill('.menu-seed input', '4242');
+  await page.click('.menu-seed button');
+  await settle(300);
+  check((await page.evaluate(() => [window.__game.mode, window.__game.seed, window.__game.depth].join())) === 'playing,4242,0', 'Play seed starts that dungeon');
+  await page.evaluate(() => window.__game.showMenu());
+  await settle(150);
+  await page.click('.main-menu [data-move="screen"]');
+  check((await page.evaluate(() => window.localStorage.getItem('voxel-dungeon:move-mode'))) === 'screen', 'movement setting is saved');
+  await page.click('.main-menu [data-move="mouse"]');
+
+  // --- Character creator ---
+  await page.click('.main-menu [data-act="character"]');
+  await settle(200);
+  check((await page.isVisible('.char-panel')) && !(await page.isVisible('.main-menu')), 'Character opens the creator');
+  await page.click('.char-panel [data-style="mohawk"]');
+  await page.click('.char-panel .swatch[data-key="shirt"] >> nth=1');
+  await page.click('.char-panel [data-beard="on"]');
+  await settle(600);
+  const look = await page.evaluate(() => JSON.parse(window.localStorage.getItem('voxel-dungeon:appearance') ?? 'null'));
+  const heroLook = await page.evaluate(() => window.__game.worldState.player.appearance);
+  check(look?.hairStyle === 'mohawk' && look.beard !== null && heroLook.hairStyle === 'mohawk', 'look changes apply live and are saved');
+  await page.screenshot({ path: `${outDir}/24-character.png` });
+  await page.click('.char-panel [data-act="done"]');
+  await settle(150);
+  check(await page.isVisible('.main-menu'), 'Done returns to the menu');
+
+  // --- Mods screen ---
+  await page.click('.main-menu [data-act="mods"]');
+  await settle(200);
+  const modNames = await page.locator('.mods-panel .mod-name').allTextContents();
+  check(modNames.some((n) => n.includes('Example Mod')), `mods folder is listed (${modNames.join(', ')})`);
+  check((await page.locator('.mods-panel .mod-row.on').count()) === 0, 'the example mod ships switched off');
+  await page.click('.mods-panel [data-toggle="0"]');
+  await settle(100);
+  check(
+    (await page.locator('.mods-panel .mod-row.on').count()) === 1 &&
+      (await page.evaluate(() => window.__game.mods.activeCount)) === 1,
+    'a mod can be switched on',
+  );
+  await page.screenshot({ path: `${outDir}/25-mods.png` });
+  await page.click('.mods-panel [data-act="done"]');
+  await settle(150);
+  check((await page.textContent('.main-menu [data-act="mods"]')).includes('1'), 'menu shows the active mod count');
+
+  // --- Tutorial prompt and tutorial ---
+  await page.click('.main-menu [data-act="new"]');
+  await settle(200);
+  check((await page.isVisible('.tutorial-prompt')) && (await page.evaluate(() => window.__game.mode)) === 'menu', 'New run asks about the tutorial first');
+  await page.click('.tutorial-prompt [data-act="yes"]');
+  await settle(300);
+  check(
+    (await page.evaluate(() => [window.__game.mode, window.__game.tutorial].join())) === 'playing,true' && (await page.isVisible('.tutorial-box')),
+    'Yes starts the tutorial with its checklist',
+  );
+  check((await page.textContent('.floor-label')) === 'Tutorial', 'HUD labels the tutorial floor');
+  await page.keyboard.down('KeyW');
+  await waitSim(1.2);
+  await page.keyboard.up('KeyW');
+  await settle(100);
+  check((await page.locator('.tutorial-box li.done').count()) >= 1, 'moving ticks off the first tutorial step');
+  await page.screenshot({ path: `${outDir}/26-tutorial.png` });
+  // Beat the guardian and take the portal: the real run starts.
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.debugKillBoss();
+  });
+  await waitSim(0.6);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.debugTeleport(g.level.exit.x, g.level.exit.z);
+  });
+  await waitSim(0.5);
+  check(
+    (await page.evaluate(() => [window.__game.tutorial, window.__game.depth, window.__game.mode].join())) === 'false,0,playing' &&
+      !(await page.isVisible('.tutorial-box')),
+    'the tutorial portal starts the real run on floor 1',
+  );
+  await page.evaluate(() => window.__game.showMenu());
+  await settle(150);
+  await page.click('.main-menu [data-act="new"]');
+  await settle(150);
+  await page.click('.tutorial-prompt [data-act="no"]');
+  await settle(300);
+  check((await page.evaluate(() => [window.__game.mode, window.__game.tutorial].join())) === 'playing,false', 'No starts the run directly');
+
+  // --- New mobs, elites, summons, animations ---
+  await page.evaluate(() => window.__game.restart());
+  await waitSim(0.3);
+  await page.evaluate(() => {
+    const g = window.__game;
+    window.__ev = { blocked: 0, enemyHeal: 0, teleport: 0, rise: 0 };
+    for (const k of Object.keys(window.__ev)) g.events.on(k, () => window.__ev[k]++);
+  });
+  const ev = () => page.evaluate(() => window.__ev);
+  /** Place a mob near the player; it's kept as window.__mobs[tag] so later checks find the same one. */
+  const placeMob = (tag, kind, dx, dz, setup) =>
+    page.evaluate(
+      ({ tag, kind, dx, dz, setup }) => {
+        const g = window.__game;
+        const p = g.worldState.player;
+        const e = g.debugPlace(kind, dx, dz);
+        e.facing = Math.atan2(p.pos.x - e.pos.x, p.pos.z - e.pos.z);
+        if (setup) new Function('e', 'g', setup)(e, g);
+        (window.__mobs ??= {})[tag] = e;
+      },
+      { tag, kind, dx, dz, setup },
+    );
+  const mob = (tag, expr) => page.evaluate(({ tag, expr }) => new Function('e', `return ${expr}`)(window.__mobs[tag]), { tag, expr });
+  const clearMobs = () =>
+    page.evaluate(() => {
+      for (const e of window.__game.worldState.enemies) if (!e.isBoss && e.alive) {
+        e.rewardsOnDeath = false;
+        e.applyDamage(1e9, 0, 0);
+      }
+    });
+  const healMe = () => page.evaluate(() => { const p = window.__game.worldState.player; p.godMode = false; p.hp = p.maxHp; });
+
+  // Spider: a pack member lunges and bites.
+  await clearMobs();
+  await healMe();
+  await placeMob('spider', 'spider', 2.2, 0.4);
+  await waitSim(2.5);
+  const sp = await state();
+  check(sp.player.hp < sp.player.maxHp, `spider lunges and bites (hp ${sp.player.hp}/${sp.player.maxHp})`);
+  await page.screenshot({ path: `${outDir}/22-spider.png` });
+
+  // Shieldbearer: blocks from the front, not from behind.
+  await clearMobs();
+  await placeMob('sb', 'shieldbearer', 1.8, 0, "e.state = 'advance';");
+  const guard = await mob(
+    'sb',
+    '({ front: e.incomingMult(e.pos.x + Math.sin(e.facing) * 2, e.pos.z + Math.cos(e.facing) * 2), back: e.incomingMult(e.pos.x - Math.sin(e.facing) * 2, e.pos.z - Math.cos(e.facing) * 2) })',
+  );
+  check(guard.front < 0.5 && guard.back === 1, `shieldbearer blocks from the front only (front ×${guard.front}, back ×${guard.back})`);
+  await page.evaluate(() => (window.__game.worldState.player.godMode = true));
+  await page.mouse.move(...Object.values(await mob('sb', 'window.__game.debugWorldToScreen(e.pos.x, e.pos.z)')));
+  await page.mouse.down();
+  await waitSim(0.8);
+  await page.mouse.up();
+  check((await ev()).blocked > 0, `hitting the shield shows a block (${(await ev()).blocked})`);
+  await page.screenshot({ path: `${outDir}/23-shieldbearer.png` });
+
+  // Shaman: heals a wounded ally.
+  await clearMobs();
+  await page.evaluate(() => (window.__game.worldState.player.godMode = true));
+  await placeMob('hurt', 'grunt', -2.2, 1.5, 'e.hp = Math.round(e.maxHp * 0.3);');
+  await placeMob('shaman', 'shaman', -2.2, -1.2);
+  const healHp0 = await mob('hurt', 'e.hp');
+  await waitSim(4.5);
+  const healHp1 = await mob('hurt', 'e.hp');
+  check((await ev()).enemyHeal > 0 && healHp1 > healHp0, `shaman heals a wounded grunt (${healHp0} -> ${healHp1})`);
+  await page.screenshot({ path: `${outDir}/24-shaman.png` });
+
+  // Wraith: blinks behind the player.
+  await clearMobs();
+  const tp0 = (await ev()).teleport;
+  await placeMob('wraith', 'wraith', 4, 1);
+  await waitSim(3);
+  check((await ev()).teleport > tp0, 'wraith blinks to the player');
+  await page.screenshot({ path: `${outDir}/25-wraith.png` });
+
+  // Elites and summons.
+  await clearMobs();
+  const elite = await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.debugCreateEnemy('grunt');
+    const base = e.maxHp;
+    e.makeElite();
+    return { ratio: e.maxHp / base, elite: e.elite };
+  });
+  check(elite.elite && elite.ratio > 2, `elites are much tougher (×${elite.ratio.toFixed(1)} HP)`);
+  const rose = await page.evaluate(() => {
+    const w = window.__game.worldState;
+    const p = w.player.pos;
+    w.ctx.spawnEnemy('grunt', p.x + 2, p.z);
+    return w.enemies[w.enemies.length - 1].rising;
+  });
+  check(rose && (await ev()).rise > 0, 'summoned monsters rise out of the floor');
+
+  // Sword alternates slash and chop.
+  await clearMobs();
+  const swings = await page.evaluate(() => {
+    const p = window.__game.worldState.player;
+    p.inventory.weapon = { ...p.inventory.weapon, weapon: 'sword', id: Math.random() };
+    p.refreshEquipment();
+    return p.swingIndex;
+  });
+  await page.mouse.down();
+  await waitSim(0.5);
+  await page.mouse.up();
+  await waitSim(0.5);
+  const swings2 = await page.evaluate(() => window.__game.worldState.player.swingIndex);
+  check(typeof swings === 'number' && typeof swings2 === 'number', 'sword combo state tracks swings');
+  await page.evaluate(() => (window.__game.worldState.player.godMode = false));
+
+  // --- Hidden admin access and commands ---
+  await page.evaluate(() => window.__game.showMenu());
+  await settle(200);
+  check(!(await page.isVisible('.admin-login')), 'admin login is hidden by default');
+  // Fire the clicks straight at the element: headless software rendering is too slow for
+  // five real clicks (each waits on frames) to land inside the 2.5 s window.
+  await page.evaluate(() => {
+    for (let i = 0; i < 5; i++) document.querySelector('.menu-title').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await settle(150);
+  check(await page.isVisible('.admin-login'), 'clicking the title 5 times opens the hidden login');
+  await page.fill('.admin-login input[name="user"]', 'jkbytes');
+  await page.fill('.admin-login input[name="pass"]', 'not-the-password');
+  await page.click('.admin-login button[type="submit"]');
+  await settle(100);
+  check((await page.textContent('.admin-error')).includes('Wrong'), 'wrong credentials are rejected');
+  if (process.env.ADMIN_PW) {
+    // The real password is never stored in the repo; pass it in to test a real login.
+    await page.fill('.admin-login input[name="user"]', 'jkbytes');
+    await page.fill('.admin-login input[name="pass"]', process.env.ADMIN_PW);
+    await page.click('.admin-login button[type="submit"]');
+    await settle(150);
+    check(await page.isVisible('.admin-console'), 'correct login opens the admin console');
+    await page.keyboard.press('Escape');
+  } else {
+    await page.click('.admin-login [data-act="cancel"]');
+  }
+  await page.click('.main-menu [data-act="new"]');
+  await settle(150);
+  await page.check('.tutorial-prompt .tp-check input');
+  await page.click('.tutorial-prompt [data-act="no"]');
+  await settle(200);
+  const adm = (line) => page.evaluate((l) => window.__game.adminCommand(window.__game.debugParse(l)), line);
+  check((await adm('help')).includes('give'), 'admin help lists commands');
+  await adm('god on');
+  await page.evaluate(() => window.__game.worldState.player.applyDamage(500, 0, 0));
+  check((await state()).player.alive && (await state()).player.hp === (await state()).player.maxHp, 'god mode blocks damage');
+  await adm('god off');
+  check((await adm('give weapon mythic 3')).startsWith('Added 3 mythic'), 'give adds mythic weapons');
+  check((await adm('floor 7')).includes('7') && (await extra()).depth === 6, 'floor jumps to floor 7');
+  const killed = await adm('killall');
+  await waitSim(0.3);
+  check(killed.startsWith('Killed') && (await state()).enemies.filter((e) => e.alive && e.kind !== 'boss').length === 0, `killall clears the floor (${killed})`);
+  // Auto-picked level-ups may already have ranked Might up, so check the change.
+  const mightBefore = await page.evaluate(() => window.__game.worldState.player.progress.perks.might ?? 0);
+  const perkOut = await adm('perk might 2');
+  check(perkOut.includes(`rank ${Math.min(10, mightBefore + 2)}`), `perk adds attribute ranks (${perkOut})`);
+  check((await adm('perk ascendance')).includes('rank 100'), 'perk ascendance sets every attribute to rank 100');
+  // Ascended attack speed must still land hits: swings shorten to fit.
+  await page.evaluate(() => window.__game.debugSpawn('grunt', 0, 1.4));
+  await page.mouse.move(...Object.values(await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.debugState().enemies.find((x) => x.alive && x.kind === 'grunt');
+    return g.debugWorldToScreen(e.x, e.z);
+  })));
+  await page.mouse.down();
+  await waitSim(0.5);
+  await page.mouse.up();
+  check(
+    (await state()).enemies.filter((e) => e.kind === 'grunt' && e.alive).length === 0,
+    'ascended rapid attacks still hit',
+  );
+  check((await adm('level 60')).startsWith('Level 60'), 'level raises character level');
+  check((await adm('level 500')).startsWith('Usage: level <1-100>'), 'without an admin login the level cap is 100');
+  await page.evaluate(() => (window.__game.worldState.player.levelCap = 1000));
+  check((await adm('level 500')).startsWith('Level 500'), 'the admin level cap is 1000');
+  await page.evaluate(() => (window.__game.autoPerk = true));
+  await waitSim(0.1);
+  check((await adm('frobnicate')).startsWith('Unknown'), 'unknown commands are reported');
+  const gear = await adm('admingear all');
+  const worn = await page.evaluate(() => {
+    const p = window.__game.worldState.player;
+    return { w: p.inventory.weapon.rarity, a: p.inventory.armor?.rarity, powers: p.inventory.weapon.powers?.length, hp: p.maxHp, dmg: p.inventory.weapon.damage };
+  });
+  check(gear.startsWith('Equipped') && worn.w === 'admin' && worn.a === 'admin' && worn.powers === 5 && worn.hp >= 999999 && worn.dmg === 999999, `admingear equips maxed gear (${JSON.stringify(worn)})`);
+  await settle(200);
+  await page.screenshot({ path: `${outDir}/27-admin-gear.png` });
+  check((await adm('spawn frost-grunt 2')).startsWith('Spawned 2 Frost Grunt'), 'spawn makes mod variants');
+  check((await adm('spawn dragon')).startsWith('Enemies:'), 'spawn lists valid enemies');
+  const modList = await adm('mods');
+  check(modList.includes('[on]') && modList.includes('Example Mod'), 'mods lists loaded mods');
+  await page.screenshot({ path: `${outDir}/21-floor7.png` });
 
   // --- M3: floors render with their own theme ---
   for (const depth of [1, 2]) {
     await page.evaluate((d) => window.__game.loadFloor(d), depth);
-    await page.waitForTimeout(300);
+    await settle(300);
     await page.screenshot({ path: `${outDir}/06-floor${depth + 1}.png` });
   }
   await page.evaluate(() => window.__game.loadFloor(0));

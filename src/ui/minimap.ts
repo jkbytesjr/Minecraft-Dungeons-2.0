@@ -5,11 +5,11 @@ import { RARITY_COLOR } from '../systems/loot';
 
 const SIZE = 180;
 /** Screen pixels per tile. */
-const SCALE = 4;
-const SIGHT = 9;
+const SCALE = 2.6;
+const SIGHT = 13;
 const REDRAW_INTERVAL = 1 / 20;
 /** Enemies further than this (in tiles) are not shown, even on explored ground. */
-const ENEMY_RANGE = 16;
+const ENEMY_RANGE = 22;
 const COLORS = { floor: '#5a5368', wall: '#a49cb8', chest: '#f2c14e', portal: '#b07cff', enemy: '#ff5a4e', boss: '#ff3df2' };
 
 /**
@@ -45,6 +45,21 @@ export class Minimap {
     return this.explored ? this.explored.seen.reduce((a, b) => a + b, 0) : 0;
   }
 
+  /** Mark the whole floor as explored (admin). */
+  revealAll(): void {
+    const ex = this.explored;
+    if (!ex) return;
+    const { grid } = ex;
+    for (let z = 0; z < grid.height; z++)
+      for (let x = 0; x < grid.width; x++) {
+        const t = grid.get(x, z);
+        if (t === Tile.Void) continue;
+        ex.seen[z * grid.width + x] = 1;
+        this.baseCtx.fillStyle = t === Tile.Wall || t === Tile.Prop ? COLORS.wall : COLORS.floor;
+        this.baseCtx.fillRect(x, z, 1, 1);
+      }
+  }
+
   load(world: GameWorld): void {
     const { grid } = world.level;
     this.explored = new Exploration(grid);
@@ -66,7 +81,7 @@ export class Minimap {
       for (const i of ex.reveal(player.pos.x, player.pos.z, SIGHT)) {
         const x = i % ex.grid.width;
         const z = (i - x) / ex.grid.width;
-        this.baseCtx.fillStyle = ex.grid.get(x, z) === Tile.Wall ? COLORS.wall : COLORS.floor;
+        this.baseCtx.fillStyle = ex.grid.get(x, z) === Tile.Wall || ex.grid.get(x, z) === Tile.Prop ? COLORS.wall : COLORS.floor;
         this.baseCtx.fillRect(x, z, 1, 1);
       }
     }

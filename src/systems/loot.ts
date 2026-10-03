@@ -1,9 +1,11 @@
 /** Item model and loot rolls. Pure logic (no three.js), unit-tested. */
 import type { Rng } from '../core/rng';
 import { BASE_WEAPONS, type WeaponKind } from './weapons';
-import { rollPowers, type WeaponPower } from './powers';
+import { POWER_IDS, rollPowers, type WeaponPower } from './powers';
 
-export type Rarity = 'common' | 'rare' | 'unique' | 'mythic';
+/** 'admin' never drops: admin gear only comes from the admin console. */
+export type Rarity = 'common' | 'rare' | 'unique' | 'mythic' | 'admin';
+/** Rarities that can drop as loot. */
 export const RARITIES: readonly Rarity[] = ['common', 'rare', 'unique', 'mythic'];
 
 export type StatKey = 'damagePct' | 'critChance' | 'attackSpeedPct' | 'maxHp' | 'armor' | 'moveSpeedPct' | 'lifeOnHit';
@@ -41,10 +43,10 @@ export type Item = WeaponItem | ArmorItem;
 /** What an enemy or chest can drop. Potions stack, so they aren't items. */
 export type Drop = { type: 'item'; item: Item } | { type: 'potion' };
 
-export type DropSource = 'grunt' | 'archer' | 'exploder' | 'boss' | 'chest';
+export type DropSource = 'grunt' | 'archer' | 'exploder' | 'spider' | 'shieldbearer' | 'shaman' | 'wraith' | 'elite' | 'boss' | 'chest';
 
-export const RARITY_MULT: Record<Rarity, number> = { common: 1, rare: 1.3, unique: 1.7, mythic: 2.2 };
-const MOD_COUNT: Record<Rarity, [number, number]> = { common: [0, 1], rare: [2, 2], unique: [3, 3], mythic: [4, 4] };
+export const RARITY_MULT: Record<Rarity, number> = { common: 1, rare: 1.3, unique: 1.7, mythic: 2.2, admin: 10 };
+const MOD_COUNT: Record<Rarity, [number, number]> = { common: [0, 1], rare: [2, 2], unique: [3, 3], mythic: [4, 4], admin: [7, 7] };
 
 /** Base [min, max] roll per stat at item level 0. `flat` stats also scale with item level. */
 export const MOD_RANGES: Record<StatKey, { min: number; max: number; flat: boolean }> = {
@@ -161,12 +163,17 @@ export function rollItem(rng: Rng, itemLevel: number, opts: RollOptions = {}): I
 }
 
 /** Roll everything a defeated enemy / opened chest drops. */
-export function rollDrops(rng: Rng, source: DropSource, itemLevel: number): Drop[] {
+export function rollDrops(rng: Rng, source: DropSource, itemLevel: number, dropMult = 1): Drop[] {
   const drops: Drop[] = [];
   const item = (opts?: RollOptions): Drop => ({ type: 'item', item: rollItem(rng, itemLevel, opts) });
   switch (source) {
     case 'boss':
       drops.push(item({ minRarity: 'rare', uniqueBoost: 30 }), item({ minRarity: 'rare' }), { type: 'potion' });
+      break;
+    case 'elite':
+      // Elites always drop something good, on top of their normal drop.
+      drops.push(item({ minRarity: 'rare', uniqueBoost: 10 }));
+      if (rng.chance(0.5)) drops.push({ type: 'potion' });
       break;
     case 'chest':
       drops.push(item());
@@ -174,8 +181,8 @@ export function rollDrops(rng: Rng, source: DropSource, itemLevel: number): Drop
       if (rng.chance(0.5)) drops.push({ type: 'potion' });
       break;
     default:
-      if (rng.chance(0.12)) drops.push(item());
-      if (rng.chance(0.1)) drops.push({ type: 'potion' });
+      if (rng.chance(Math.min(1, 0.12 * dropMult))) drops.push(item());
+      if (rng.chance(Math.min(1, 0.1 * dropMult))) drops.push({ type: 'potion' });
   }
   return drops;
 }
@@ -191,7 +198,47 @@ export const STARTER_WEAPON: WeaponItem = {
   mods: [],
 };
 
-export const RARITY_COLOR: Record<Rarity, string> = { common: '#d8d8d8', rare: '#5aa9ff', unique: '#ff9a2e', mythic: '#ff3d6e' };
+export const RARITY_COLOR: Record<Rarity, string> = { common: '#d8d8d8', rare: '#5aa9ff', unique: '#ff9a2e', mythic: '#ff3d6e', admin: '#29ffe0' };
+
+/** Every stat maxed: what admin gear carries. Crit is capped at 75% in computeStats anyway. */
+/** Admin weapon base damage: the most any weapon has. With the admin damage bonus it one-shots anything, even endless-floor bosses. */
+export const ADMIN_DAMAGE = 999_999;
+/** Admin armor: the most armor and HP any item has. Every hit is cut to the 1-damage minimum. */
+export const ADMIN_ARMOR = 999_999;
+export const ADMIN_MAX_HP = 999_999;
+
+const ADMIN_MODS: Modifier[] = [
+  { stat: 'damagePct', value: 5 },
+  { stat: 'critChance', value: 0.75 },
+  { stat: 'attackSpeedPct', value: 1 },
+  { stat: 'moveSpeedPct', value: 0.5 },
+  { stat: 'maxHp', value: 999 },
+  { stat: 'armor', value: 999 },
+  { stat: 'lifeOnHit', value: 50 },
+];
+
+export type AdminGearKind = WeaponKind | 'armor';
+
+/**
+ * Admin gear: every stat at its maximum and, on weapons, every power at
+ * admin tier. Never part of any loot table; only the admin console makes it.
+ */
+export function makeAdminItem(kind: AdminGearKind, id: number): Item {
+  const mods = ADMIN_MODS.map((m) => ({ ...m }));
+  if (kind === 'armor') return { kind: 'armor', id, name: 'Aegis of the Architect', rarity: 'admin', itemLevel: 998, armor: ADMIN_ARMOR, maxHp: ADMIN_MAX_HP, mods };
+  const names: Record<WeaponKind, string> = { sword: 'Worldbreaker', spear: 'Axis Mundi', bow: 'Final Word' };
+  return {
+    kind: 'weapon',
+    id,
+    name: names[kind],
+    weapon: kind,
+    rarity: 'admin',
+    itemLevel: 998,
+    damage: ADMIN_DAMAGE,
+    mods,
+    powers: POWER_IDS.map((p) => ({ id: p, tier: 3 as const })),
+  };
+}
 
 const STAT_LABEL: Record<StatKey, (v: number) => string> = {
   damagePct: (v) => `+${Math.round(v * 100)}% damage`,

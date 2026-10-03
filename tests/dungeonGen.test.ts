@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BOSS_KINDS, bossForFloor, generateDungeon, type Dungeon } from '../src/world/dungeonGen';
+import { BIOMES, floorTheme } from '../src/world/biomes';
+import { BOSS_KINDS, STEP, bossForFloor, generateDungeon, type Dungeon } from '../src/world/dungeonGen';
 
 /** A floor far beyond where most runs end. */
 const DEEP = 30;
@@ -107,6 +108,39 @@ describe('generateDungeon', () => {
   });
 });
 
+describe('enemy variety', () => {
+  const kindsAt = (depth: number) => new Set(Array.from({ length: 30 }, (_, i) => generateDungeon(i + 1, depth).spawns.map((s) => s.kind)).flat());
+
+  it('unlocks new monsters as you go deeper', () => {
+    expect(kindsAt(0).has('spider')).toBe(true);
+    expect(kindsAt(0).has('shieldbearer')).toBe(false);
+    expect(kindsAt(1).has('shieldbearer')).toBe(true);
+    expect(kindsAt(1).has('shaman')).toBe(false);
+    expect(kindsAt(2).has('shaman')).toBe(true);
+    expect(kindsAt(2).has('wraith')).toBe(false);
+    for (const k of ['grunt', 'archer', 'exploder', 'spider', 'shieldbearer', 'shaman', 'wraith']) expect(kindsAt(5).has(k as never)).toBe(true);
+  });
+
+  it('spawns spiders in packs', () => {
+    const d = generateDungeon(7, 2);
+    for (const s of d.spawns.filter((x) => x.kind === 'spider')) {
+      const inRoom = d.spawns.filter((x) => x.kind === 'spider' && x.roomId === s.roomId).length;
+      expect(inRoom).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('makes elites rarer near the top and more common deeper', () => {
+    const rate = (depth: number) => {
+      const all = Array.from({ length: 40 }, (_, i) => generateDungeon(i + 100, depth).spawns.filter((s) => s.kind !== 'boss')).flat();
+      return all.filter((s) => s.elite).length / all.length;
+    };
+    expect(rate(0)).toBeGreaterThan(0);
+    expect(rate(0)).toBeLessThan(0.1);
+    expect(rate(10)).toBeGreaterThan(rate(0));
+    expect(generateDungeon(3, 4).spawns.find((s) => s.kind === 'boss')?.elite).toBeFalsy();
+  });
+});
+
 describe('bossForFloor', () => {
   const order = (seed: number, n: number) => Array.from({ length: n }, (_, d) => bossForFloor(seed, d));
 
@@ -130,5 +164,89 @@ describe('bossForFloor', () => {
     expect(new Set(Array.from({ length: 50 }, (_, i) => order(i, 8).join())).size).toBeGreaterThan(3);
     const seed = 4242;
     expect(Array.from({ length: 8 }, (_, d) => generateDungeon(seed, d).boss)).toEqual(order(seed, 8));
+  });
+});
+
+describe('arena layout', () => {
+  const inRoom = (d: Dungeon, x: number, z: number) => d.rooms.some((r) => x >= r.x && x < r.x + r.w && z >= r.z && z < r.z + r.h);
+  /** Walkable tiles in a straight line through (x, z) along one axis. */
+  const span = (d: Dungeon, x: number, z: number, dx: number, dz: number) => {
+    let n = 1;
+    for (const s of [1, -1]) for (let i = 1; d.grid.isWalkable(x + dx * i * s, z + dz * i * s); i++) n++;
+    return n;
+  };
+
+  it('corridors are at least 5 tiles wide', () => {
+    for (const seed of SEEDS)
+      for (const depth of [0, 3]) {
+        const d = generateDungeon(seed, depth);
+        for (let z = 0; z < d.grid.height; z++)
+          for (let x = 0; x < d.grid.width; x++) {
+            if (!d.grid.isWalkable(x, z) || inRoom(d, x, z)) continue;
+            // A corridor tile is either in a wide horizontal or a wide vertical band.
+            expect(Math.max(span(d, x, z, 1, 0), span(d, x, z, 0, 1))).toBeGreaterThanOrEqual(5);
+          }
+      }
+  });
+
+  it('rooms are open arenas', () => {
+    for (const seed of SEEDS) {
+      const d = generateDungeon(seed, 0);
+      for (const r of d.rooms) expect(Math.min(r.w, r.h)).toBeGreaterThanOrEqual(11);
+      expect(d.rooms.find((r) => r.kind === 'boss')!.w).toBeGreaterThanOrEqual(19);
+    }
+  });
+
+  it('floor heights step at most one STEP between walkable neighbours; edges and boss arena stay flat', () => {
+    let raised = 0;
+    for (const seed of SEEDS) {
+      const d = generateDungeon(seed, 1);
+      const { grid } = d;
+      const h = (x: number, z: number) => d.heights![z * grid.width + x];
+      for (let z = 0; z < grid.height; z++)
+        for (let x = 0; x < grid.width; x++) {
+          if (!grid.isWalkable(x, z)) continue;
+          if (h(x, z) !== 0) raised++;
+          if (!inRoom(d, x, z)) expect(h(x, z)).toBe(0);
+          for (const [dx, dz] of [[1, 0], [0, 1], [1, 1], [1, -1]])
+            if (grid.isWalkable(x + dx, z + dz)) expect(Math.abs(h(x, z) - h(x + dx, z + dz))).toBeLessThanOrEqual(STEP + 1e-6);
+        }
+      const boss = d.rooms.find((r) => r.kind === 'boss')!;
+      for (let z = boss.z; z < boss.z + boss.h; z++) for (let x = boss.x; x < boss.x + boss.w; x++) expect(h(x, z)).toBe(0);
+      for (const r of d.rooms)
+        for (let x = r.x; x < r.x + r.w; x++) {
+          expect(h(x, r.z)).toBe(0);
+          expect(h(x, r.z + r.h - 1)).toBe(0);
+        }
+    }
+    expect(raised).toBeGreaterThan(0);
+  });
+
+  it('corner props only sit in closed corners and never on spawns or chests', () => {
+    for (const seed of SEEDS) {
+      const d = generateDungeon(seed, 2);
+      for (const s of d.spawns) expect(d.grid.get(Math.floor(s.x), Math.floor(s.z))).toBe(Tile.Floor);
+      for (const c of d.chests) expect(d.grid.get(Math.floor(c.x), Math.floor(c.z))).toBe(Tile.Floor);
+    }
+    const props = SEEDS.reduce((n, s) => n + Array.from(generateDungeon(s, 0).grid.tiles).filter((t) => t === Tile.Prop).length, 0);
+    expect(props).toBeGreaterThan(0);
+  });
+});
+
+describe('floor themes', () => {
+  it('never repeats a biome on back-to-back floors, and no two of the first 12 floors look alike', () => {
+    for (const seed of SEEDS) {
+      const themes = Array.from({ length: 12 }, (_, d) => floorTheme(seed, d));
+      for (let d = 1; d < themes.length; d++) expect(themes[d].biome.id).not.toBe(themes[d - 1].biome.id);
+      expect(new Set(themes.map((t) => `${t.biome.id}:${t.mood}`)).size).toBe(12);
+      // Every biome shows up in the first six floors.
+      expect(new Set(themes.slice(0, 6).map((t) => t.biome.id)).size).toBe(BIOMES.length);
+    }
+  });
+
+  it('is deterministic and varies between runs', () => {
+    expect(floorTheme(5, 3)).toEqual(floorTheme(5, 3));
+    const firsts = new Set(SEEDS.map((s) => floorTheme(s, 0).biome.id));
+    expect(firsts.size).toBeGreaterThan(1);
   });
 });

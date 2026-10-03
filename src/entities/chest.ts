@@ -1,3 +1,4 @@
+import { groundAt } from '../world/terrain';
 import * as THREE from 'three';
 import { voxelBox } from './voxelModel';
 
@@ -15,7 +16,7 @@ export class Chest {
     readonly z: number,
     facing: number,
   ) {
-    this.group.position.set(x, 0, z);
+    this.group.position.set(x, groundAt(x, z), z);
     this.group.rotation.y = facing;
     this.group.add(
       voxelBox([0.9, 0.5, 0.6], 0x7a4a22, [0, 0.25, 0]),

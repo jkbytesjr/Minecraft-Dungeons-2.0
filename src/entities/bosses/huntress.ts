@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { EnemyContext } from '../enemy';
 import { Boss, telegraphMaterial } from '../boss';
-import { buildHumanoid, voxelBox } from '../voxelModel';
+import { buildHumanoid, onHead, voxelBox } from '../voxelModel';
 
 type State = 'move' | 'fanAim' | 'rapid' | 'dash' | 'recover';
 
@@ -36,9 +36,22 @@ export class Huntress extends Boss {
       3.2,
     );
     this.addEyes(0xc8ff5a);
-    // Hood, quiver and a big bow in the left hand.
+    const { head, armL, armR } = this.model;
     const inner = this.model.body.children[0];
-    inner.add(voxelBox([0.48, 0.2, 0.48], 0x24452a, [0, 1.55, -0.02]), voxelBox([0.16, 0.5, 0.14], 0x5a3a1e, [0.12, 1.0, -0.22]));
+    // Antler crown, war paint and a leaf cloak.
+    for (const side of [-1, 1]) {
+      onHead(head, [0.05, 0.26, 0.05], 0xd9c7a0, [side * 0.14, 0.32, -0.02]).rotateZ(-side * 0.4);
+      onHead(head, [0.04, 0.12, 0.04], 0xd9c7a0, [side * 0.24, 0.42, -0.02]).rotateZ(side * 0.5);
+      onHead(head, [0.04, 0.1, 0.04], 0xd9c7a0, [side * 0.12, 0.44, 0.02]);
+      onHead(head, [0.04, 0.12, 0.02], 0x9be34a, [side * 0.12, -0.04, 0.215]);
+    }
+    inner.add(
+      voxelBox([0.56, 0.7, 0.05], 0x24452a, [0, 0.85, -0.2]),
+      voxelBox([0.16, 0.5, 0.14], 0x5a3a1e, [0.12, 1.0, -0.26]),
+      voxelBox([0.04, 0.14, 0.04], 0x9be34a, [0.09, 1.3, -0.26]),
+      voxelBox([0.04, 0.14, 0.04], 0x9be34a, [0.15, 1.32, -0.24]),
+    );
+    for (const arm of [armL, armR]) arm.add(voxelBox([0.26, 0.1, 0.28], 0x3f7a2a, [0, -0.02, 0]).rotateZ(arm === armL ? 0.2 : -0.2));
     this.model.armL.add(
       voxelBox([0.06, 0.06, 1.1], 0x5a2e1a, [0, -0.5, 0.06]),
       voxelBox([0.06, 0.14, 0.08], 0x9be34a, [0, -0.43, 0.6]),

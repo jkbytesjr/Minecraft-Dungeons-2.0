@@ -5,7 +5,8 @@ import { Boss } from '../entities/boss';
 import { Portal } from '../entities/portal';
 import type { Dungeon } from '../world/dungeonGen';
 import { createEnemy } from '../entities/enemyFactory';
-import { buildLevelMeshes } from '../world/voxelBuilder';
+import { atmosphereFor, buildLevelMeshes } from '../world/voxelBuilder';
+import { setTerrain } from '../world/terrain';
 import { Torches } from '../world/torches';
 import { FlowField } from '../systems/flowField';
 import { inArc } from '../systems/combat';
@@ -15,6 +16,8 @@ import { Pickup } from '../entities/pickup';
 import { Chest } from '../entities/chest';
 import { rollDrops, type Drop, type DropSource } from '../systems/loot';
 import { POWER_VALUES } from '../systems/powers';
+import { xpForKill } from '../systems/progression';
+import { activeMods, type ModEnemyDef } from '../systems/mods';
 import type { DamageResult } from '../systems/damage';
 import { Rng } from './rng';
 import type { EventBus } from './events';
@@ -22,10 +25,21 @@ import type { EventBus } from './events';
 /** Enemies further than this from the player are frozen and hidden. */
 const ACTIVE_RANGE = 30;
 const PICKUP_RANGE = 1.0;
+/** A living monster this close counts as being in a fight. */
+const COMBAT_RANGE = 7;
 const CHEST_RANGE = 1.4;
 const SLAM_RADIUS = 3.2;
+/** Spears thrown by the volley (E). */
 const VOLLEY_ARROWS = 7;
 const VOLLEY_SPREAD = (50 * Math.PI) / 180;
+
+/** Solid (lit) parts of a model cast shadows; glows, rings and effects don't. */
+export function castShadows(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) mesh.castShadow = mesh.material instanceof THREE.MeshLambertMaterial;
+  });
+}
 
 /** Owns everything in the simulation: level, player, enemies, and the rules between them. */
 export class GameWorld {
@@ -43,12 +57,19 @@ export class GameWorld {
   private readonly root = new THREE.Group();
   private levelGroup = new THREE.Group();
   private torches!: Torches;
+  /** Magic circles on the floor: they turn slowly. */
+  private runes: THREE.Object3D[] = [];
   private flow!: FlowField;
   private rng = new Rng(1);
   private ctx!: EnemyContext;
   private deathAnnounced = false;
   private readonly focus = new THREE.Vector3();
   private readonly playerTargets: ProjectileTarget[] = [this.player];
+  /**
+   * Seconds since the player was last in a fight: dealt or took damage, or had
+   * a monster close by. Level-up choices wait for a calm moment.
+   */
+  calmTime = 0;
   /** Weapon hits since the last Shockwave. */
   private shockCount = 0;
 
@@ -69,9 +90,11 @@ export class GameWorld {
     this.chests.length = 0;
     this.root.remove(this.levelGroup);
     this.level = level;
+    setTerrain(level);
     this.rng = new Rng(level.seed * 31 + level.depth);
     this.levelGroup = buildLevelMeshes(level, level.seed + level.depth);
-    this.torches = new Torches(level.torches);
+    this.torches = new Torches(level.torches, atmosphereFor(level), this.levelGroup.userData.spots ?? []);
+    this.runes = this.levelGroup.children.filter((o) => o.name === 'rune');
     this.portal = new Portal(level.exit.x, level.exit.z);
     this.levelGroup.add(this.torches.group, this.portal.group);
     this.root.add(this.levelGroup);
@@ -80,6 +103,7 @@ export class GameWorld {
     this.deathAnnounced = false;
     this.portalReached = false;
     this.boss = null;
+    this.calmTime = 0;
     this.ctx = {
       player: this.player,
       grid: level.grid,
@@ -89,15 +113,25 @@ export class GameWorld {
       hitPlayer: (source, attack, knockback) => this.hitPlayer(source, attack, knockback),
       fireProjectile: (spec) => this.fireProjectile({ ...spec, owner: 'enemy' }),
       explode: (x, z, radius, base, source) => this.explode(x, z, radius, base, source),
-      spawnEnemy: (kind, x, z) => this.spawn(createEnemy(kind, level.depth), x, z),
+      spawnEnemy: (kind, x, z) => {
+        this.spawn(createEnemy(kind, level.depth), x, z).rise();
+        this.events.emit('rise', { x, z });
+      },
+      allies: () => this.enemies,
     };
     for (const c of level.chests) {
       const chest = new Chest(c.x, c.z, this.rng.pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]));
       this.chests.push(chest);
       this.levelGroup.add(chest.group);
     }
+    // Mod variants are rolled on their own stream so the base layout stays the same with or without mods.
+    const variantRng = new Rng(level.seed * 131 + level.depth * 7 + 3);
     for (const s of level.spawns) {
-      const e = this.spawn(createEnemy(s.kind, level.depth, level.boss), s.x, s.z);
+      const e = createEnemy(s.kind, level.depth, level.boss);
+      const variant = s.kind === 'boss' || level.tutorial ? null : activeMods().variantFor(s.kind, level.depth, variantRng);
+      this.spawn(e, s.x, s.z);
+      if (variant) this.applyVariant(e, variant);
+      if (s.elite) e.makeElite();
       if (e instanceof Boss) this.boss = e;
     }
   }
@@ -106,7 +140,7 @@ export class GameWorld {
     const { player, level } = this;
     const wasDodging = player.dodging;
     player.update(dt, input, level.grid);
-    if (!wasDodging && player.dodging) this.events.emit('dodge', { ...player.pos });
+    if (!wasDodging && player.dodging) this.events.emit('dodge', { ...player.pos, admin: player.ascendedArmor });
     if (player.strikeReady) this.resolvePlayerStrike();
     if (player.slamReady) this.resolveSlam();
     if (player.volleyReady) this.resolveVolley();
@@ -116,11 +150,14 @@ export class GameWorld {
       this.events.emit('playerDied', {});
     }
 
+    this.calmTime += dt;
+    if (this.boss?.alive && this.boss.engaged) this.calmTime = 0;
     this.flow.update(player.pos.x, player.pos.z);
     for (const e of this.enemies) {
       const near = Math.abs(e.pos.x - player.pos.x) < ACTIVE_RANGE && Math.abs(e.pos.z - player.pos.z) < ACTIVE_RANGE;
       e.object.visible = near;
       if (near) e.update(dt, this.ctx, camera);
+      if (e.alive && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < COMBAT_RANGE) this.calmTime = 0;
     }
     this.separate();
     this.projectiles.update(
@@ -151,15 +188,43 @@ export class GameWorld {
     }
     this.portal.update(dt);
     if (player.alive && this.portal.contains(player.pos.x, player.pos.z)) this.portalReached = true;
-    this.torches.update(dt, this.focus.set(player.pos.x, 0, player.pos.z));
+    this.animateScenery(dt, camera);
+  }
+
+  /** Animate torches, magic circles and the portal without running the simulation (title screen). */
+  updateScenery(dt: number, camera?: THREE.Camera): void {
+    this.portal.update(dt);
+    this.animateScenery(dt, camera);
+  }
+
+  private animateScenery(dt: number, camera?: THREE.Camera): void {
+    this.torches.update(dt, this.focus.set(this.player.pos.x, 0, this.player.pos.z), camera);
+    for (const r of this.runes) r.rotation.z += (r.userData.spin as number) * dt;
   }
 
   spawn(enemy: Enemy, x: number, z: number): Enemy {
+    enemy.compact();
+    castShadows(enemy.object);
+    const t = activeMods().tweaks;
+    if (t.enemyHpMult !== 1) enemy.maxHp = enemy.hp = Math.max(1, Math.round(enemy.maxHp * t.enemyHpMult));
+    enemy.damageMult *= t.enemyDamageMult;
+    enemy.tempo *= t.enemySpeedMult;
     enemy.setPosition(x, z);
     enemy.facing = this.rng.range(-Math.PI, Math.PI);
     this.enemies.push(enemy);
     this.root.add(enemy.object, enemy.healthBar.group, enemy.worldFx);
     return enemy;
+  }
+
+  /** Turn a freshly spawned enemy into a mod variant. */
+  applyVariant(e: Enemy, v: ModEnemyDef): void {
+    e.maxHp = e.hp = Math.max(1, Math.round(e.maxHp * v.hpMult));
+    e.damageMult *= v.damageMult;
+    e.tempo *= v.speedMult;
+    e.xpMult *= v.xpMult;
+    e.variantName = v.name;
+    if (v.scale !== 1) e.resize(v.scale);
+    if (v.tint !== null) e.tint(v.tint);
   }
 
   fireProjectile(spec: ProjectileSpec): void {
@@ -176,7 +241,14 @@ export class GameWorld {
     const dx = e.pos.x - fromX;
     const dz = e.pos.z - fromZ;
     const len = Math.hypot(dx, dz) || 1;
+    const mult = e.incomingMult(fromX, fromZ);
+    if (mult < 1) {
+      dmg.amount = Math.max(1, Math.round(dmg.amount * mult));
+      knockback *= mult;
+      this.events.emit('blocked', { x: e.pos.x, z: e.pos.z });
+    }
     if (!e.applyDamage(dmg.amount, (dx / len) * knockback, (dz / len) * knockback)) return null;
+    this.calmTime = 0;
     this.events.emit('hit', { x: e.pos.x, z: e.pos.z, amount: dmg.amount, crit: dmg.crit, target: 'enemy' });
     if (this.player.stats.lifeOnHit > 0) this.player.heal(this.player.stats.lifeOnHit);
     if (proc) this.triggerPowers(e, dmg, attack);
@@ -290,9 +362,12 @@ export class GameWorld {
     if (e.rewardsOnDeath) {
       this.kills++;
       this.events.emit('enemyDied', { x: e.pos.x, z: e.pos.z, kind: e.kind, xp: e.xp });
-      const levels = this.player.gainXp(e.xp * (1 + 0.5 * this.level.depth));
+      const mods = activeMods();
+      const levels = this.player.gainXp(Math.round(xpForKill(e.xp * e.xpMult, this.level.depth) * mods.tweaks.xpMult));
       if (levels > 0) this.events.emit('levelUp', { level: this.player.progress.level });
-      this.dropLoot(rollDrops(this.rng, e.kind as DropSource, this.level.depth), e.pos.x, e.pos.z);
+      const drops = rollDrops(this.rng, e.kind as DropSource, this.level.depth, mods.tweaks.dropMult);
+      if (e.elite) drops.push(...rollDrops(this.rng, 'elite', this.level.depth));
+      this.dropLoot(drops, e.pos.x, e.pos.z);
     }
     if (e === this.boss) {
       this.portal.activate();
@@ -302,7 +377,7 @@ export class GameWorld {
         other.rewardsOnDeath = false;
         other.applyDamage(99999, 0, 0);
       }
-      this.events.emit('bossDefeated', { x: e.pos.x, z: e.pos.z });
+      this.events.emit('bossDefeated', { x: e.pos.x, z: e.pos.z, name: (e as Boss).name });
     }
   }
 
@@ -319,6 +394,7 @@ export class GameWorld {
       const dmg = rollDamage(p.attack, this.player.armor, () => this.rng.next());
       // Dodging through arrows is allowed: invulnerable players don't consume them.
       if (!this.player.applyDamage(dmg.amount, p.dirX * p.knockback, p.dirZ * p.knockback)) return false;
+      this.calmTime = 0;
       this.events.emit('hit', { ...this.player.pos, amount: dmg.amount, crit: dmg.crit, target: 'player' });
       return true;
     }
@@ -327,6 +403,13 @@ export class GameWorld {
   }
 
   private dropLoot(drops: Drop[], x: number, z: number): void {
+    // Mods with items get a share of the item drops.
+    const mods = activeMods();
+    if (mods.items.length)
+      drops = drops.map((d) => {
+        const swap = d.type === 'item' ? mods.maybeModItem(this.rng, this.level.depth) : null;
+        return swap ? { type: 'item', item: swap } : d;
+      });
     drops.forEach((d, i) => {
       const p = new Pickup(d, x, z, (i / Math.max(1, drops.length)) * Math.PI * 2 + this.rng.range(0, 1));
       this.pickups.push(p);
@@ -362,7 +445,7 @@ export class GameWorld {
 
   private resolveSlam(): void {
     const { player } = this;
-    this.events.emit('slam', { x: player.pos.x, z: player.pos.z, radius: SLAM_RADIUS });
+    this.events.emit('slam', { x: player.pos.x, z: player.pos.z, radius: SLAM_RADIUS, admin: player.ascendedArmor });
     const attack = { ...player.attackStats, base: 14 + player.stats.weaponDamage };
     for (const e of this.enemies) {
       if (!e.alive || Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) > SLAM_RADIUS + e.radius) continue;
@@ -373,6 +456,8 @@ export class GameWorld {
   private resolveVolley(): void {
     const { player } = this;
     const attack = { ...player.attackStats, base: 4 + player.stats.weaponDamage * 0.6 };
+    const admin = player.ascendedArmor;
+    this.events.emit('volley', { x: player.pos.x, z: player.pos.z, facing: player.facing, admin });
     for (let i = 0; i < VOLLEY_ARROWS; i++) {
       const a = player.facing + (i / (VOLLEY_ARROWS - 1) - 0.5) * VOLLEY_SPREAD;
       this.fireProjectile({
@@ -385,6 +470,9 @@ export class GameWorld {
         attack,
         knockback: 3,
         owner: 'player',
+        // Thrown spears; admin armor throws lances of light that leave a trail.
+        spear: admin ? { shaft: i % 2 ? 0xffd23f : 0x29ffe0, head: 0xffffff } : { shaft: 0x8a5a2b, head: 0xd7dde3 },
+        ...(admin ? { trail: i % 2 ? 0xffd23f : 0x29ffe0 } : {}),
       });
     }
   }
@@ -422,6 +510,7 @@ export class GameWorld {
     const dz = player.pos.z - source.pos.z;
     const len = Math.hypot(dx, dz) || 1;
     if (player.applyDamage(dmg.amount, (dx / len) * knockback, (dz / len) * knockback)) {
+      this.calmTime = 0;
       this.events.emit('hit', { x: player.pos.x, z: player.pos.z, amount: dmg.amount, crit: dmg.crit, target: 'player' });
     }
   }
@@ -434,8 +523,10 @@ export class GameWorld {
     if (playerDmg > 0) {
       const amount = Math.max(1, Math.round(playerDmg * (100 / (100 + p.armor))));
       const len = pd || 1;
-      if (p.applyDamage(amount, ((p.pos.x - x) / len) * 12, ((p.pos.z - z) / len) * 12))
+      if (p.applyDamage(amount, ((p.pos.x - x) / len) * 12, ((p.pos.z - z) / len) * 12)) {
+        this.calmTime = 0;
         this.events.emit('hit', { ...p.pos, amount, crit: false, target: 'player' });
+      }
     }
     for (const e of this.enemies) {
       if (e === source || !e.alive) continue;

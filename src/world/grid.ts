@@ -3,6 +3,8 @@ export const Tile = {
   Void: 0,
   Floor: 1,
   Wall: 2,
+  /** Solid furniture (crates, barrels, urns, planters) in room corners: blocks like a wall. */
+  Prop: 3,
 } as const;
 export type Tile = (typeof Tile)[keyof typeof Tile];
 

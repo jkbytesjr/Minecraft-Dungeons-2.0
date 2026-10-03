@@ -35,6 +35,8 @@ export abstract class Boss extends Enemy {
   protected stateTime = 0;
   /** Set when damaged while asleep; engage() runs on the next update (it needs ctx). */
   private wakePending = false;
+  /** Decorations that circle the boss (skulls, embers); spun every frame. */
+  protected readonly orbiters = new THREE.Group();
 
   protected constructor(name: string, depth: number, maxHp: number, model: HumanoidParts, barHeight: number) {
     super(maxHp, model, barHeight);
@@ -42,6 +44,19 @@ export abstract class Boss extends Enemy {
     const tier = Math.floor(depth / 4);
     this.name = tier === 0 ? name : `${name} ${['Reborn', 'Ascendant'][tier - 1] ?? 'Eternal'}`;
     this.knockbackTaken = 0.12;
+    this.model.root.add(this.orbiters);
+  }
+
+  /** Add `count` copies of `make()` circling at `radius`, bobbing around `height`. */
+  protected addOrbiters(count: number, radius: number, height: number, make: () => THREE.Object3D): void {
+    for (let i = 0; i < count; i++) {
+      const o = make();
+      const a = (i / count) * Math.PI * 2;
+      o.position.set(Math.sin(a) * radius, height, Math.cos(a) * radius);
+      o.userData.phase = a;
+      o.userData.height = height;
+      this.orbiters.add(o);
+    }
   }
 
   get enraged(): boolean {
@@ -98,6 +113,13 @@ export abstract class Boss extends Enemy {
       this.engage(ctx);
     }
     super.update(dt, ctx, camera);
+    // Counter the body's facing so orbiters circle in world space, and bob them.
+    this.orbiters.rotation.y += dt * 1.6;
+    for (const o of this.orbiters.children) {
+      o.position.y = (o.userData.height as number) + Math.sin(this.stateTime * 3 + (o.userData.phase as number)) * 0.15;
+      o.rotation.y += dt * 2;
+    }
+    this.orbiters.visible = this.alive;
     // The overhead bar is replaced by the HUD boss bar.
     this.healthBar.group.visible = false;
   }

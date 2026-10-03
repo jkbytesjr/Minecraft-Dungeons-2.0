@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { EnemyContext } from '../enemy';
 import { Boss, groundCircle } from '../boss';
-import { buildHumanoid, voxelBox } from '../voxelModel';
+import { buildHumanoid, onHead, voxelBox } from '../voxelModel';
 
 type State = 'drift' | 'bolts' | 'ringWindup' | 'blinkOut' | 'blinkIn' | 'summon' | 'recover';
 
@@ -44,6 +44,23 @@ export class Necromancer extends Boss {
     );
     this.skull = voxelBox([0.2, 0.2, 0.2], 0xe8e2d0, [0, -0.5, 1.0]);
     this.model.armR.add(voxelBox([0.06, 0.06, 1.2], 0x2a2230, [0, -0.5, 0.35]), this.skull);
+    // Bone crown and ribbed robe front.
+    const { head } = this.model;
+    onHead(head, [0.48, 0.07, 0.48], 0xe8e2d0, [0, 0.3, 0]);
+    for (const x of [-0.16, 0, 0.16]) onHead(head, [0.06, 0.14, 0.06], 0xe8e2d0, [x, 0.4, 0.2]);
+    for (const y of [0.98, 0.88, 0.78]) inner.add(voxelBox([0.32, 0.04, 0.02], 0xbfb8a4, [0, y, 0.17]));
+    // Floating skulls circling him, eyes glowing.
+    this.addOrbiters(3, 1.4, 1.9, () => {
+      const g = new THREE.Group();
+      g.add(voxelBox([0.24, 0.22, 0.22], 0xe8e2d0), voxelBox([0.18, 0.06, 0.18], 0xbfb8a4, [0, -0.13, 0.01]));
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xd18bff });
+      for (const ex of [-0.05, 0.05]) {
+        const e = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.02), eyeMat);
+        e.position.set(ex, 0.02, 0.115);
+        g.add(e);
+      }
+      return g;
+    });
     this.ringMark = groundCircle();
     this.model.root.add(this.ringMark);
   }

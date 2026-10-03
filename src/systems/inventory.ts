@@ -4,6 +4,8 @@ import { perkBonuses, type PerkCounts } from './perks';
 
 export const BAG_SIZE = 16;
 export const MAX_POTIONS = 9;
+/** Move speed tops out at this multiple of the base speed. */
+export const MAX_MOVE_MULT = 3;
 
 export interface DerivedStats {
   maxHp: number;
@@ -91,7 +93,8 @@ export function computeStats(perks: PerkCounts, inv: Pick<Inventory, 'weapon' | 
     critChance: Math.min(0.75, BASE.critChance + pk.critChance + sumMods(gear, 'critChance')),
     critMultiplier: BASE.critMultiplier + pk.critMultiplier,
     armor: (inv.armor?.armor ?? 0) + pk.armor + sumMods(gear, 'armor'),
-    moveSpeed: BASE.moveSpeed * (1 + pk.moveSpeedPct + sumMods(gear, 'moveSpeedPct')),
+    // Capped at 3x so the hero can still steer and stop on the cursor.
+    moveSpeed: BASE.moveSpeed * Math.min(MAX_MOVE_MULT, 1 + pk.moveSpeedPct + sumMods(gear, 'moveSpeedPct')),
     attackSpeed: 1 + pk.attackSpeedPct + sumMods(gear, 'attackSpeedPct'),
     lifeOnHit: pk.lifeOnHit + sumMods(gear, 'lifeOnHit'),
     weaponDamage: inv.weapon.damage,

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { Actor } from './actor';
 import { HealthBar } from './healthBar';
-import type { HumanoidParts } from './voxelModel';
+import { compactModel, type HumanoidParts } from './voxelModel';
+import { BodyMotion, ease, span } from './animation';
+import { groundAt } from '../world/terrain';
 import type { Player } from './player';
 import type { TileGrid } from '../world/grid';
 import type { FlowField } from '../systems/flowField';
@@ -22,10 +24,18 @@ export interface EnemyContext {
   /** Area damage to the player (and, at half strength, other enemies). */
   explode(x: number, z: number, radius: number, base: number, source: Enemy): void;
   spawnEnemy(kind: EnemyKind, x: number, z: number): void;
+  /** Every enemy on the floor (for healers). */
+  allies(): readonly Enemy[];
   events: EventBus;
 }
 
-const DEATH_TIME = 0.7;
+const DEATH_TIME = 0.95;
+/** Seconds a summoned enemy takes to climb out of the floor. */
+const RISE_TIME = 0.7;
+
+const tintCache = new Map<string, THREE.MeshLambertMaterial>();
+
+const eliteRingMat = new THREE.MeshBasicMaterial({ color: 0xffc23a, transparent: true, opacity: 0.55, depthWrite: false });
 
 export abstract class Enemy extends Actor {
   abstract readonly kind: string;
@@ -50,6 +60,22 @@ export abstract class Enemy extends Actor {
   chillSlow = 1;
   freezeTime = 0;
   statusFxTimer = 0;
+  /** Elite (champion) enemies: tougher, glowing, worth more. */
+  elite = false;
+  /** Multiplies XP for the kill (elites). */
+  xpMult = 1;
+  /** Speeds up everything it does (mod variants and tweaks). */
+  tempo = 1;
+  /** Display name of a mod variant, if it is one. */
+  variantName: string | null = null;
+  /** Typical run speed, used to scale lean and bounce. */
+  protected moveSpeed = 3;
+  protected readonly motion = new BodyMotion();
+  private riseTimer = 0;
+  /** Last knockback received, to pick which way the body falls. */
+  private readonly lastKnock = { x: 0, z: 0 };
+  private fallDir = -1;
+  private fallSide = 0;
   protected walkPhase = 0;
   private deathTimer = 0;
 
@@ -57,6 +83,15 @@ export abstract class Enemy extends Actor {
     super(maxHp);
     this.model = model;
     this.healthBar = new HealthBar(barHeight);
+  }
+
+  private compacted = false;
+
+  /** Merge the model's boxes for fewer draw calls (once, after subclasses finish building it). */
+  compact(): void {
+    if (this.compacted) return;
+    this.compacted = true;
+    compactModel(this.model.root);
   }
 
   get object(): THREE.Object3D {
@@ -76,26 +111,144 @@ export abstract class Enemy extends Actor {
 
   update(dt: number, ctx: EnemyContext, camera: THREE.Camera): void {
     this.tickCommon(dt, ctx.grid);
+    let rootY = 0;
     if (this.alive) {
       this.chillTime = Math.max(0, this.chillTime - dt);
       this.freezeTime = Math.max(0, this.freezeTime - dt);
-      // Frozen enemies stop entirely; chilled ones move and attack in slow motion.
-      const timeScale = this.freezeTime > 0 ? 0 : this.chillTime > 0 ? this.chillSlow : 1;
-      if (timeScale > 0) this.think(dt * timeScale, ctx);
+      if (this.riseTimer > 0) {
+        // Summoned: climb out of the floor before doing anything.
+        this.riseTimer = Math.max(0, this.riseTimer - dt);
+        rootY = -1.7 * ease.inCubic(this.riseTimer / RISE_TIME);
+        this.animateWalk(dt, true, 14);
+      } else {
+        // Frozen enemies stop entirely; chilled ones move and attack in slow motion.
+        const timeScale = this.freezeTime > 0 ? 0 : this.chillTime > 0 ? this.chillSlow : 1;
+        if (timeScale > 0) this.think(dt * timeScale * this.tempo, ctx);
+      }
+      this.motion.apply(this.model, dt, this.pos, this.facing, this.walkPhase, this.moveSpeed, this.attackLean);
     } else {
-      this.deathTimer += dt;
-      const t = Math.min(1, this.deathTimer / (DEATH_TIME * 0.6));
-      this.model.body.rotation.x = -(Math.PI / 2) * t;
-      this.model.body.position.y = this.model.bodyBaseY * (1 - 0.6 * t);
-      const sink = Math.max(0, (this.deathTimer - DEATH_TIME * 0.6) / (DEATH_TIME * 0.4));
-      this.model.root.scale.setScalar(1 - 0.8 * sink);
+      this.animateDeath(dt);
+      rootY = -0.6 * span(this.deathTimer, DEATH_TIME * 0.6, DEATH_TIME);
     }
-    this.model.root.position.set(this.pos.x, 0, this.pos.z);
+    // Stand on raised or sunken floors (visual only); ground warnings follow.
+    const ground = groundAt(this.pos.x, this.pos.z);
+    this.model.root.position.set(this.pos.x, rootY + ground, this.pos.z);
     this.model.root.rotation.y = this.facing;
-    this.healthBar.update(this.pos.x, this.pos.z, this.hp / this.maxHp, camera);
+    this.worldFx.position.y = ground;
+    this.healthBar.update(this.pos.x, this.pos.z, this.hp / this.maxHp, camera, ground);
   }
 
   protected abstract think(dt: number, ctx: EnemyContext): void;
+
+  /** Extra forward lean for attack poses (subclasses set it while attacking). */
+  protected attackLean = 0;
+
+  /**
+   * Fraction of incoming player damage taken from a hit that came from
+   * (fromX, fromZ). 1 unless `blockArc` says it hit a raised shield.
+   */
+  incomingMult(fromX: number, fromZ: number): number {
+    const arc = this.blockArc();
+    if (arc === null) return 1;
+    let d = Math.abs(Math.atan2(fromX - this.pos.x, fromZ - this.pos.z) - this.facing) % (Math.PI * 2);
+    if (d > Math.PI) d = Math.PI * 2 - d;
+    return d < arc.halfAngle ? arc.taken : 1;
+  }
+
+  /** Shielded enemies return their guard: hits within `halfAngle` of facing take `taken` of the damage. */
+  protected blockArc(): { halfAngle: number; taken: number } | null {
+    return null;
+  }
+
+  /** Start under the floor and climb out (summoned enemies). */
+  rise(): void {
+    this.riseTimer = RISE_TIME;
+  }
+
+  get rising(): boolean {
+    return this.riseTimer > 0;
+  }
+
+  /** Multiply a colour over the whole (merged) model: mod variants. Call after `compact`. */
+  tint(color: number): void {
+    const c = new THREE.Color(color);
+    this.model.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !(mesh.material instanceof THREE.MeshLambertMaterial)) return;
+      if (mesh.material.transparent) {
+        // Per-instance material (ghosts): tint in place.
+        mesh.material.color.multiply(c);
+        return;
+      }
+      const key = `${mesh.material.uuid}:${color}`;
+      let mat = tintCache.get(key);
+      if (!mat) {
+        mat = mesh.material.clone();
+        mat.color.multiply(c);
+        tintCache.set(key, mat);
+      }
+      mesh.material = mat;
+    });
+  }
+
+  /** Grow or shrink the body. */
+  resize(factor: number): void {
+    this.model.body.scale.multiplyScalar(factor);
+    this.model.bodyBaseY *= factor;
+    this.model.body.position.y = this.model.bodyBaseY;
+  }
+
+  /** Turn into an elite: more health and damage, bigger, ringed in gold. */
+  makeElite(): void {
+    if (this.elite) return;
+    this.elite = true;
+    this.maxHp = Math.round(this.maxHp * 2.5);
+    this.hp = this.maxHp;
+    this.damageMult *= 1.4;
+    this.xpMult = 3;
+    const s = this.model.body.scale.x * 1.18;
+    this.model.body.scale.setScalar(s);
+    this.model.bodyBaseY *= 1.18;
+    this.model.body.position.y = this.model.bodyBaseY;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(this.radius + 0.12, this.radius + 0.3, 24), eliteRingMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.04;
+    this.model.root.add(ring);
+    this.healthBar.setElite();
+  }
+
+  applyDamage(amount: number, knockX: number, knockZ: number): boolean {
+    const hit = super.applyDamage(amount, knockX, knockZ);
+    if (hit) {
+      this.lastKnock.x = knockX;
+      this.lastKnock.z = knockZ;
+      this.motion.hit(Math.min(1, 0.35 + 0.65 * this.knockbackTaken) * (this.elite ? 0.7 : 1));
+    }
+    return hit;
+  }
+
+  protected onDeath(): void {
+    // Fall the way the killing blow pushed: backward if hit from the front.
+    const fwd = this.lastKnock.x * Math.sin(this.facing) + this.lastKnock.z * Math.cos(this.facing);
+    const side = this.lastKnock.x * Math.cos(this.facing) - this.lastKnock.z * Math.sin(this.facing);
+    this.fallDir = fwd > 0.01 ? 1 : -1;
+    this.fallSide = Math.max(-1, Math.min(1, side * 0.2)) + (Math.random() - 0.5) * 0.4;
+  }
+
+  /** Topple with a bounce, limbs flopping, then sink into the floor. */
+  private animateDeath(dt: number): void {
+    this.deathTimer += dt;
+    const { body, bodyBaseY, armL, armR, legL, legR } = this.model;
+    const t = ease.outBounce(span(this.deathTimer, 0, DEATH_TIME * 0.55));
+    body.rotation.x = this.fallDir * (Math.PI / 2) * t;
+    body.rotation.z = this.fallSide * 0.35 * t;
+    body.position.y = bodyBaseY * (1 - 0.62 * t);
+    armL.rotation.x = armR.rotation.x = -this.fallDir * 1.1 * t;
+    armL.rotation.z = -0.7 * t;
+    armR.rotation.z = 0.7 * t;
+    legL.rotation.x = 0.25 * t;
+    legR.rotation.x = -0.15 * t;
+  }
 
   protected distanceToPlayer(ctx: EnemyContext): number {
     return Math.hypot(ctx.player.pos.x - this.pos.x, ctx.player.pos.z - this.pos.z);
@@ -146,14 +299,21 @@ export abstract class Enemy extends Actor {
     return true;
   }
 
+  /** Walk cycle (or settle to idle): punchy leg swing, counter-swinging arms, a little idle sway. */
   protected animateWalk(dt: number, moving: boolean, rate = 10): void {
     const { legL, legR, armL, armR } = this.model;
     if (moving) this.walkPhase += dt * rate;
     else this.walkPhase *= Math.pow(0.001, dt);
-    const s = Math.sin(this.walkPhase) * 0.6;
+    const raw = Math.sin(this.walkPhase);
+    // Sharper than a sine: legs spend less time crossing, more time planted.
+    const s = Math.sign(raw) * Math.abs(raw) ** 0.7 * 0.65;
     legL.rotation.x = s;
     legR.rotation.x = -s;
-    armL.rotation.x = -s * 0.7;
-    armR.rotation.x = s * 0.7;
+    armL.rotation.x = -s * 0.75;
+    armR.rotation.x = s * 0.75;
+    const idle = moving ? 0 : 1;
+    armL.rotation.z = -0.06 * idle;
+    armR.rotation.z = 0.06 * idle;
+    this.attackLean *= Math.exp(-8 * dt);
   }
 }

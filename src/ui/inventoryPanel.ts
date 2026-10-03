@@ -179,7 +179,7 @@ export class InventoryPanel {
           ? `<div class="tt-powers">${item.powers
               .map(
                 (p) =>
-                  `<div class="tt-power" style="--power:${POWERS[p.id].color}"><b>${POWERS[p.id].name}${p.tier === 2 ? ' (Mythic)' : ''}</b><span>${POWERS[p.id].describe(p.tier)}</span></div>`,
+                  `<div class="tt-power" style="--power:${POWERS[p.id].color}"><b>${POWERS[p.id].name}${p.tier === 3 ? ' (Admin)' : p.tier === 2 ? ' (Mythic)' : ''}</b><span>${POWERS[p.id].describe(p.tier)}</span></div>`,
               )
               .join('')}</div>`
           : ''
